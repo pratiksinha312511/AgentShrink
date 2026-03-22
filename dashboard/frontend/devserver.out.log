@@ -1,0 +1,21 @@
+
+> agentshrink-dashboard@0.1.0 dev
+> next dev --port 3000
+
+  ▲ Next.js 14.2.18
+  - Local:        http://localhost:3000
+
+ ✓ Starting...
+ ✓ Ready in 6.3s
+ ○ Compiling / ...
+ ✓ Compiled / in 25.5s (1534 modules)
+ GET / 200 in 2667ms
+ GET / 200 in 442ms
+ ○ Compiling /clusters ...
+ ✓ Compiled /report in 5.1s (1542 modules)
+ ○ Compiling /routing ...
+ ✓ Compiled /routing in 839ms (1548 modules)
+ ○ Compiling /finetune ...
+ ✓ Compiled /finetune in 1083ms (1552 modules)
+ ○ Compiling /settings ...
+ ✓ Compiled /settings in 1135ms (1554 modules)
