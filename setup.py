@@ -10,6 +10,7 @@ setup(
         "langchain>=0.3.7",
         "langchain-core>=0.3.19",
         "langchain-openai>=0.2.8",
+        "langchain-google-genai>=2.0.9",
         "langgraph>=0.2.45",
         "click>=8.1.7",
         "python-dotenv>=1.0.1",

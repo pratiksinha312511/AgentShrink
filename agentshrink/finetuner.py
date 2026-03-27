@@ -61,7 +61,7 @@ class FineTuneConfig:
     base_model:    str   = "unsloth/Qwen2.5-3B-Instruct"  # Best 3B for Colab T4 free
     lora_r:        int   = 16
     lora_alpha:    int   = 16
-    lora_dropout:  float = 0.05
+    lora_dropout:  float = 0.0
     n_epochs:      int   = 2
     batch_size:    int   = 2
     grad_accum:    int   = 4
@@ -222,41 +222,70 @@ print("LoRA adapters added")
 print(f"Trainable parameters: {{sum(p.numel() for p in model.parameters() if p.requires_grad):,}}")"""),
 
             self._nb_code(f"""# Step 4: Upload and load training data
-# Upload your dataset file: cluster_{cluster_id}_{cluster_name}_dataset.json
-# Then run this cell
+# IMPORTANT:
+# Your Windows path like:
+#   C:\\Users\\DELL\\Desktop\\...\\cluster_{cluster_id}_{cluster_name}_dataset.json
+# exists only on your local machine, not inside Colab.
+# In Colab, upload the dataset file or mount Google Drive first.
 
 from google.colab import files
-from datasets import Dataset
 import json
+import os
 
-# Option A: Upload manually
-# uploaded = files.upload()
-# data = json.loads(list(uploaded.values())[0])
+EXPECTED_DATASET = "cluster_{cluster_id}_{cluster_name}_dataset.json"
 
-# Option B: Paste dataset inline (if small enough)
-# data = [your data here]
+print("Choose the exported dataset JSON from your local machine.")
+print(f"Expected filename: {{EXPECTED_DATASET}}")
+print(f"Examples needed: {n_examples}")
 
-# For demo: create minimal dataset from the examples
-print("Upload your dataset JSON file using the file upload button, then adjust the path below.")
-print(f"Expected: cluster_{cluster_id}_{cluster_name}_dataset.json")
-print(f"Examples needed: {n_examples}")"""),
+uploaded = files.upload()
+
+if EXPECTED_DATASET in uploaded:
+    dataset_path = EXPECTED_DATASET
+elif uploaded:
+    dataset_path = next(iter(uploaded))
+else:
+    raise FileNotFoundError("No dataset uploaded. Upload the exported JSON file before continuing.")
+
+print(f"Dataset uploaded to Colab as: {{dataset_path}}")
+print(f"Current working directory: {{os.getcwd()}}")
+
+with open(dataset_path, "r", encoding="utf-8") as f:
+    raw_data = json.load(f)
+
+print(f"Loaded {{len(raw_data)}} records from {{dataset_path}}")"""),
 
             self._nb_code(f"""# Step 5: Format for ShareGPT and train
 from trl import SFTTrainer
 from transformers import TrainingArguments
+from datasets import Dataset
 from unsloth.chat_templates import get_chat_template
 
 tokenizer = get_chat_template(tokenizer, chat_template="chatml")
 
 def format_conversation(examples):
     convs = examples["conversations"]
-    texts = [tokenizer.apply_chat_template(conv, tokenize=False, add_generation_prompt=False)
-             for conv in convs]
-    return {{"text": texts}}
+    texts = []
+    for conv in convs:
+        messages = []
+        for turn in conv:
+            speaker = turn.get("from", "")
+            if speaker == "human":
+                role = "user"
+            elif speaker == "gpt":
+                role = "assistant"
+            else:
+                role = speaker or "user"
+            messages.append({{"role": role, "content": turn.get("value", "")}})
 
-# Load your dataset (adjust path if needed)
-with open("cluster_{cluster_id}_{cluster_name}_dataset.json") as f:
-    raw_data = json.load(f)
+        texts.append(
+            tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=False,
+            )
+        )
+    return {{"text": texts}}
 
 dataset = Dataset.from_list(raw_data).map(format_conversation, batched=True)
 print(f"Dataset ready: {{len(dataset)}} examples")

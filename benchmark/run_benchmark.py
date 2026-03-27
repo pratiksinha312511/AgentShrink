@@ -25,6 +25,7 @@ Usage:
 import sys
 import time
 import json
+import os
 import pathlib
 import argparse
 import statistics
@@ -41,6 +42,9 @@ from rich.rule import Rule
 from rich import box
 
 console = Console()
+
+from agentshrink.logger import _estimate_cost
+from target_agent.agent import _target_agent_model, _target_agent_provider
 
 # Benchmark test messages — diverse enough to hit all cluster types
 BENCHMARK_MESSAGES = [
@@ -81,7 +85,7 @@ def run_agent_once(agent, message: str) -> dict:
 
 
 def benchmark_before(n_runs: int) -> dict:
-    """Benchmark without AgentShrink — pure GPT-4o-mini."""
+    """Benchmark without AgentShrink — pure cloud/provider baseline."""
     console.print(Rule("[bold red]BEFORE AgentShrink[/bold red]"))
     from target_agent.agent import build_agent
 
@@ -98,9 +102,9 @@ def benchmark_before(n_runs: int) -> dict:
     latencies  = [r["latency_ms"] for r in results if r["success"]]
     n_success  = sum(1 for r in results if r["success"])
 
-    # Cost estimate: 5 calls per run × (100 tokens in + 20 tokens out)
-    # GPT-4o-mini: $0.00015/1K in, $0.0006/1K out
-    cost_per_call = (100 * 0.00015 + 20 * 0.0006) / 1000
+    baseline_provider = _target_agent_provider()
+    baseline_model = _target_agent_model(baseline_provider)
+    cost_per_call = _estimate_cost(baseline_model, 100, 20)
     cost_per_run  = cost_per_call * 5
 
     summary = {
@@ -112,9 +116,12 @@ def benchmark_before(n_runs: int) -> dict:
         "total_cost":      cost_per_run * n_runs,
         "local_calls_pct": 0.0,
         "api_calls_pct":   100.0,
+        "provider":        baseline_provider,
+        "model":           baseline_model,
     }
 
     console.print(f"  ✓ {n_success}/{n_runs} runs succeeded")
+    console.print(f"  Baseline model: {baseline_provider}/{baseline_model}")
     console.print(f"  Avg latency: {summary['avg_latency_ms']:.0f}ms")
     console.print(f"  Cost per run: ${summary['cost_per_run']:.5f}")
     return summary
@@ -132,10 +139,19 @@ def benchmark_after(n_runs: int, trace: bool) -> dict:
     from agentshrink.shrink_llm import ShrinkLLM
     from target_agent.agent import build_agent
 
+    fallback_provider = os.getenv("SHRINKLLM_FALLBACK_PROVIDER", "ollama")
+    fallback_model = os.getenv(
+        "SHRINKLLM_FALLBACK_MODEL",
+        os.getenv("TARGET_AGENT_GEMINI_MODEL", "gemini-2.0-flash-lite") if fallback_provider == "gemini"
+        else os.getenv("TARGET_AGENT_OPENAI_MODEL", "gpt-4o-mini")
+    )
+
     llm = ShrinkLLM(
         output_dir=str(output_dir),
         trace_mode=trace,
         confidence_threshold=0.70,
+        fallback_provider=fallback_provider,
+        fallback_model=fallback_model,
     )
 
     # Patch agent to use ShrinkLLM
@@ -164,7 +180,7 @@ def benchmark_after(n_runs: int, trace: bool) -> dict:
     local_pct       = routing_stats.get("local_pct", 0) / 100
     api_calls_per_run = 5 * (1 - local_pct)
 
-    cost_per_call = (100 * 0.00015 + 20 * 0.0006) / 1000
+    cost_per_call = _estimate_cost(fallback_model, 100, 20)
     cost_per_run  = cost_per_call * api_calls_per_run
 
     summary = {
@@ -177,9 +193,12 @@ def benchmark_after(n_runs: int, trace: bool) -> dict:
         "local_calls_pct": routing_stats.get("local_pct", 0),
         "api_calls_pct":   100 - routing_stats.get("local_pct", 0),
         "routing_stats":   routing_stats,
+        "fallback_provider": fallback_provider,
+        "fallback_model":  fallback_model,
     }
 
     console.print(f"  ✓ {n_success}/{n_runs} runs succeeded")
+    console.print(f"  Fallback model: {fallback_provider}/{fallback_model}")
     console.print(f"  Avg latency: {summary['avg_latency_ms']:.0f}ms")
     console.print(f"  Local routing: {summary['local_calls_pct']:.0f}%")
     console.print(f"  Cost per run: ${summary['cost_per_run']:.5f}")

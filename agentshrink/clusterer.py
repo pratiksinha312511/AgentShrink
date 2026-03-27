@@ -36,6 +36,7 @@ WHY 2D UMAP BEFORE HDBSCAN:
 """
 
 import logging
+import pathlib
 import numpy as np
 import pandas as pd
 from typing import Optional
@@ -500,23 +501,32 @@ Respond with ONLY the label. No explanation."""),
         np.save(output_dir / "centroids.npy", centroids_array)
 
         # Save centroid ID mapping
-        centroid_ids = sorted(result["centroids"].keys())
+        centroid_ids = [int(cid) for cid in sorted(result["centroids"].keys())]
 
         # Save cluster info as JSON (convert numpy types for JSON serialization)
+        def _json_safe(value):
+            if isinstance(value, np.generic):
+                return value.item()
+            if isinstance(value, dict):
+                return {str(k): _json_safe(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [_json_safe(v) for v in value]
+            return value
+
         cluster_info_serializable = {}
         for cid, info in result["cluster_info"].items():
             cluster_info_serializable[str(cid)] = {
-                k: v for k, v in info.items()
+                k: _json_safe(v) for k, v in info.items()
                 if k != "centroid"  # numpy array — saved separately
             }
 
         with open(output_dir / "cluster_info.json", "w") as f:
             json.dump({
-                "n_clusters": result["n_clusters"],
-                "n_noise":    result["n_noise"],
+                "n_clusters": int(result["n_clusters"]),
+                "n_noise":    int(result["n_noise"]),
                 "centroid_ids": centroid_ids,
                 "clusters":   cluster_info_serializable,
-                "cluster_names": {str(k): v for k, v in result["cluster_names"].items()},
+                "cluster_names": {str(int(k)): _json_safe(v) for k, v in result["cluster_names"].items()},
             }, f, indent=2)
 
         # Save the full dataframe with cluster assignments
@@ -525,6 +535,3 @@ Respond with ONLY the label. No explanation."""),
         ).to_parquet(output_dir / "clustered_df.parquet", index=False)
 
         logger.info(f"Clustering results saved to {output_dir}")
-
-
-import pathlib  # needed for save_results type hint

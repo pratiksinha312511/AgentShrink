@@ -8,6 +8,8 @@
 langchain==0.3.7
 langchain-core==0.3.19
 langchain-openai==0.2.8
+langchain-ollama==0.2.0
+langchain-google-genai==2.0.9
 langgraph==0.2.45
 
 # --- Local model inference ---
@@ -15,9 +17,9 @@ ollama==0.3.3               # Python client for Ollama server
 
 # --- Embedding + clustering (Phase 2) ---
 sentence-transformers==3.2.1
-hdbscan==0.8.38.post2
+hdbscan==0.8.41
 umap-learn==0.5.6
-scikit-learn==1.5.2
+scikit-learn==1.6.1
 
 # --- Data handling ---
 pandas==2.2.3

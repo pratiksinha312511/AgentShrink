@@ -46,6 +46,7 @@ import time
 import json
 import logging
 import pathlib
+import os
 from typing import Any, Iterator, List, Optional, Mapping
 from dotenv import load_dotenv
 
@@ -129,6 +130,7 @@ class ShrinkLLM(BaseChatModel):
     # Pydantic fields — required by BaseChatModel
     output_dir:           str   = ".agentshrink_output"
     fallback_model:       str   = "gpt-4o-mini"
+    fallback_provider:    str   = "openai"
     confidence_threshold: float = 0.75
     trace_mode:           bool  = False
     ollama_timeout:       int   = 30
@@ -162,8 +164,8 @@ class ShrinkLLM(BaseChatModel):
             stats = self._index.get_stats()
             logger.info(
                 f"ShrinkLLM loaded: "
-                f"{stats['local_clusters']} clusters → local SLM, "
-                f"{stats['api_clusters']} clusters → API fallback"
+                f"{stats['local_clusters']} clusters -> local SLM, "
+                f"{stats['api_clusters']} clusters -> fallback"
             )
         except FileNotFoundError as e:
             logger.warning(
@@ -174,13 +176,28 @@ class ShrinkLLM(BaseChatModel):
             self._index = None
 
     def _setup_fallback(self):
-        """Set up the fallback ChatOpenAI instance."""
+        """Set up the fallback LLM instance."""
         try:
-            from langchain_openai import ChatOpenAI
-            self._fallback_llm = ChatOpenAI(
-                model=self.fallback_model,
-                temperature=self.temperature,
-            )
+            if self.fallback_provider == "ollama":
+                from langchain_ollama import ChatOllama
+                self._fallback_llm = ChatOllama(
+                    model=self.fallback_model,
+                    temperature=self.temperature,
+                    base_url=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
+                )
+            elif self.fallback_provider == "gemini":
+                from langchain_google_genai import ChatGoogleGenerativeAI
+                self._fallback_llm = ChatGoogleGenerativeAI(
+                    model=self.fallback_model,
+                    temperature=self.temperature,
+                    google_api_key=os.getenv("GOOGLE_API_KEY"),
+                )
+            else:
+                from langchain_openai import ChatOpenAI
+                self._fallback_llm = ChatOpenAI(
+                    model=self.fallback_model,
+                    temperature=self.temperature,
+                )
         except Exception as e:
             logger.error(f"Failed to set up fallback LLM: {e}")
             self._fallback_llm = None
@@ -196,6 +213,7 @@ class ShrinkLLM(BaseChatModel):
         return {
             "output_dir":           self.output_dir,
             "fallback_model":       self.fallback_model,
+            "fallback_provider":    self.fallback_provider,
             "confidence_threshold": self.confidence_threshold,
         }
 
@@ -292,7 +310,10 @@ class ShrinkLLM(BaseChatModel):
                 options=options,
             )
 
-            content = response.message.content or ""
+            if isinstance(response, dict):
+                content = (response.get("message") or {}).get("content", "") or ""
+            else:
+                content = response.message.content or ""
             return ChatResult(generations=[
                 ChatGeneration(
                     message=AIMessage(content=content),
@@ -328,7 +349,7 @@ class ShrinkLLM(BaseChatModel):
         if self._fallback_llm is None:
             raise RuntimeError(
                 "Fallback LLM not available. "
-                "Check your OPENAI_API_KEY in .env"
+                "Check your fallback provider configuration."
             )
 
         # Delegate to the real ChatOpenAI
@@ -343,10 +364,13 @@ class ShrinkLLM(BaseChatModel):
             cluster_id=-1,
             cluster_name="unknown",
             model_name=self.fallback_model,
-            model_display=f"API ({self.fallback_model})",
+            model_display=f"Fallback ({self.fallback_model})",
             confidence=0.0,
             is_local=False,
             reason=reason,
+            nearest_cluster_name=None,
+            nearest_similarity=0.0,
+            threshold=self.confidence_threshold,
         )
 
     def _push_dashboard_event(self, decision: Any, prompt_text: str, start_time: float):
@@ -368,6 +392,10 @@ class ShrinkLLM(BaseChatModel):
                     "model_display": decision.model_display,
                     "is_local":      decision.is_local,
                     "confidence":    round(decision.confidence, 3),
+                    "nearest_cluster_name": getattr(decision, "nearest_cluster_name", None),
+                    "nearest_similarity": round(getattr(decision, "nearest_similarity", 0.0), 3),
+                    "threshold": round(getattr(decision, "threshold", self.confidence_threshold), 3),
+                    "reason": getattr(decision, "reason", ""),
                     "prompt_preview": prompt_text[:80].replace("\n", " "),
                     "timestamp":     time.time(),
                 }
@@ -398,14 +426,15 @@ class ShrinkLLM(BaseChatModel):
             source    = "LOCAL"
         else:
             model_str = f"\033[93m{self.fallback_model}\033[0m"  # Yellow
-            source    = "API  "
+            source    = "FALL "
 
         prompt_preview = prompt_text[:60].replace("\n", " ").strip()
         print(
             f"[{ts}] {source} | "
-            f"cluster='{decision.cluster_name}' → "
+            f"cluster='{decision.cluster_name}' -> "
             f"{model_str} "
-            f"(conf={decision.confidence:.2f}) | "
+            f"(conf={decision.confidence:.2f}, nearest={getattr(decision, 'nearest_cluster_name', 'n/a')}, "
+            f"sim={getattr(decision, 'nearest_similarity', 0.0):.2f}, thr={getattr(decision, 'threshold', self.confidence_threshold):.2f}) | "
             f"'{prompt_preview}...'"
         )
 

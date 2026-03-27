@@ -31,10 +31,43 @@ import json
 import logging
 import pathlib
 import numpy as np
+import os
 from typing import Optional
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+
+def _heuristic_routing_from_cluster(cluster_name: str, cluster_meta: dict) -> dict:
+    local_model = os.getenv("TARGET_AGENT_OLLAMA_MODEL", "llama3.2:3b")
+    node_dist = cluster_meta.get("node_distribution", {}) or {}
+    dominant = ""
+    if node_dist:
+        dominant = max(node_dist.items(), key=lambda kv: kv[1])[0].lower()
+
+    if any(key in dominant for key in ("classify", "extract", "format")):
+        return {
+            "model_name": local_model,
+            "model_display": f"Local ({local_model})",
+            "is_local": True,
+            "quality_score": 0.92,
+        }
+
+    if any(key in dominant for key in ("draft_reply", "check_policy")):
+        return {
+            "model_name": "fallback",
+            "model_display": "Fallback (kept on strong model)",
+            "is_local": False,
+            "quality_score": 0.58,
+        }
+
+    return {
+        "model_name": local_model,
+        "model_display": f"Local ({local_model}) (heuristic)",
+        "is_local": True,
+        "quality_score": 0.72,
+        "needs_fine_tune": True,
+    }
 
 
 @dataclass
@@ -50,6 +83,9 @@ class RoutingDecision:
     confidence:     float         # Cosine similarity to nearest centroid (0-1)
     is_local:       bool          # True = local Ollama, False = API fallback
     reason:         str           # Why this decision was made (for trace logging)
+    nearest_cluster_name: Optional[str] = None
+    nearest_similarity:   float = 0.0
+    threshold:            float = 0.75
 
 
 class CentroidIndex:
@@ -79,6 +115,7 @@ class CentroidIndex:
         self.confidence_threshold = confidence_threshold
         self.fallback_model      = fallback_model
         self._embedder           = None   # Lazy loaded
+        self._output_dir         = pathlib.Path(".")
 
     @classmethod
     def from_output_dir(
@@ -117,11 +154,25 @@ class CentroidIndex:
             for k, v in cluster_info["cluster_names"].items()
         }
 
-        # Build routing config from replaceability report
+        # Prefer an explicitly applied routing config if present.
         routing_config = {}
+        routing_config_path = output_dir / "routing_config.json"
         report_path = output_dir / "replaceability_report.json"
 
-        if report_path.exists():
+        if routing_config_path.exists():
+            with open(routing_config_path, encoding="utf-8") as f:
+                saved = json.load(f)
+            routing_blob = saved.get("routing", saved)
+            for cid_str, cfg in routing_blob.items():
+                cid = int(cid_str)
+                routing_config[cid] = {
+                    "model_name": cfg.get("model") or cfg.get("model_name", "fallback"),
+                    "model_display": cfg.get("display") or cfg.get("model_display", cfg.get("model", "fallback")),
+                    "is_local": cfg.get("local", cfg.get("is_local", False)),
+                    "quality_score": cfg.get("quality_score", 0.0),
+                    "needs_fine_tune": cfg.get("source") == "fine_tune_pending" or cfg.get("needs_fine_tune", False),
+                }
+        elif report_path.exists():
             with open(report_path) as f:
                 report = json.load(f)
 
@@ -158,26 +209,58 @@ class CentroidIndex:
         else:
             logger.warning(
                 "No replaceability_report.json found. "
-                "All clusters will fall back to API. "
-                "Run: agentshrink analyse"
+                "Using heuristic routing config from cluster metadata."
             )
+            for cid_str, meta in cluster_info.get("clusters", {}).items():
+                cid = int(cid_str)
+                routing_config[cid] = _heuristic_routing_from_cluster(
+                    cluster_names.get(cid, f"cluster_{cid}"),
+                    meta,
+                )
 
-        return cls(
+        index = cls(
             centroids=centroids,
             centroid_ids=centroid_ids,
             cluster_names=cluster_names,
             routing_config=routing_config,
             confidence_threshold=confidence_threshold,
         )
+        index._output_dir = output_dir
+        return index
 
     def _get_embedder(self):
         """Lazy-load sentence transformer — only on first route() call."""
         if self._embedder is None:
-            from sentence_transformers import SentenceTransformer
-            self._embedder = SentenceTransformer(
-                "all-MiniLM-L6-v2",
-                device="cpu"   # CPU only — safe for 8GB
-            )
+            output_dir = pathlib.Path(".")
+            vectorizer_path = output_dir / "tfidf_vectorizer.joblib"
+            # Handle relative default when instantiated via from_output_dir.
+            if hasattr(self, "_output_dir"):
+                vectorizer_path = self._output_dir / "tfidf_vectorizer.joblib"
+
+            if vectorizer_path.exists():
+                import joblib
+                vectorizer = joblib.load(vectorizer_path)
+
+                class _TfidfRuntimeEmbedder:
+                    def __init__(self, vec):
+                        self.vectorizer = vec
+
+                    def encode(self, texts, normalize_embeddings=True, show_progress_bar=False):
+                        from sklearn.preprocessing import normalize
+                        mat = self.vectorizer.transform(texts)
+                        if normalize_embeddings:
+                            mat = normalize(mat)
+                        return mat.astype(np.float32).toarray()
+
+                self._embedder = _TfidfRuntimeEmbedder(vectorizer)
+            else:
+                os.environ.setdefault("HF_HUB_OFFLINE", "1")
+                os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+                from sentence_transformers import SentenceTransformer
+                self._embedder = SentenceTransformer(
+                    "all-MiniLM-L6-v2",
+                    device="cpu"
+                )
         return self._embedder
 
     def route(self, prompt: str) -> RoutingDecision:
@@ -207,14 +290,17 @@ class CentroidIndex:
         best_idx     = int(np.argmax(similarities))
         best_sim     = float(similarities[best_idx])
         best_cid     = self.centroid_ids[best_idx]
+        nearest_cluster_name = self.cluster_names.get(best_cid, f"cluster_{best_cid}")
 
         # Below confidence threshold → unknown prompt → fall back to API
         if best_sim < self.confidence_threshold:
             return self._fallback_decision(
-                f"low confidence ({best_sim:.2f} < {self.confidence_threshold})"
+                f"low confidence ({best_sim:.2f} < {self.confidence_threshold})",
+                nearest_cluster_name=nearest_cluster_name,
+                nearest_similarity=best_sim,
             )
 
-        cluster_name = self.cluster_names.get(best_cid, f"cluster_{best_cid}")
+        cluster_name = nearest_cluster_name
         config       = self.routing_config.get(best_cid, {})
 
         # No routing config → fall back
@@ -227,6 +313,9 @@ class CentroidIndex:
                 confidence=best_sim,
                 is_local=False,
                 reason=f"cluster '{cluster_name}' assigned to API (quality too low for local)",
+                nearest_cluster_name=cluster_name,
+                nearest_similarity=best_sim,
+                threshold=self.confidence_threshold,
             )
 
         # Check if needs fine-tuning (not yet done)
@@ -239,6 +328,9 @@ class CentroidIndex:
                 confidence=best_sim,
                 is_local=False,
                 reason=f"cluster '{cluster_name}' needs fine-tuning — using API until ready",
+                nearest_cluster_name=cluster_name,
+                nearest_similarity=best_sim,
+                threshold=self.confidence_threshold,
             )
 
         # Route to local SLM
@@ -250,9 +342,17 @@ class CentroidIndex:
             confidence=best_sim,
             is_local=True,
             reason=f"cluster '{cluster_name}' routed to local SLM (confidence: {best_sim:.2f})",
+            nearest_cluster_name=cluster_name,
+            nearest_similarity=best_sim,
+            threshold=self.confidence_threshold,
         )
 
-    def _fallback_decision(self, reason: str) -> RoutingDecision:
+    def _fallback_decision(
+        self,
+        reason: str,
+        nearest_cluster_name: Optional[str] = None,
+        nearest_similarity: float = 0.0,
+    ) -> RoutingDecision:
         """Return a fallback-to-API decision."""
         return RoutingDecision(
             cluster_id=-1,
@@ -262,6 +362,9 @@ class CentroidIndex:
             confidence=0.0,
             is_local=False,
             reason=reason,
+            nearest_cluster_name=nearest_cluster_name,
+            nearest_similarity=nearest_similarity,
+            threshold=self.confidence_threshold,
         )
 
     def _is_fine_tuned_available(self, model_name: str) -> bool:

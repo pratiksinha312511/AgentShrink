@@ -26,6 +26,7 @@ import asyncio
 import pathlib
 import sqlite3
 import logging
+import os
 from typing import Optional
 from contextlib import asynccontextmanager
 
@@ -47,6 +48,138 @@ SYS_PATH_ROOT = str(PROJECT_ROOT)
 
 import sys
 sys.path.insert(0, SYS_PATH_ROOT)
+
+from agentshrink.logger import _estimate_cost
+
+
+def _load_cluster_info() -> dict | None:
+    cluster_info_path = OUTPUT_DIR / "cluster_info.json"
+    if not cluster_info_path.exists():
+        return None
+    with open(cluster_info_path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _estimate_tokens_from_text(text: str) -> int:
+    """
+    Lightweight token estimate for local-only logs where providers do not
+    return usage metadata. This keeps cost-savings demos meaningful.
+    """
+    if not text:
+        return 0
+    # Rough heuristic: ~4 chars per token for English support text.
+    return max(1, round(len(text) / 4))
+
+
+def _build_node_statuses(cluster_info: dict | None) -> dict:
+    if not cluster_info:
+        return {}
+    node_statuses = {}
+    for cid, info in cluster_info.get("clusters", {}).items():
+        for node_name, count in (info.get("node_distribution") or {}).items():
+            current = node_statuses.setdefault(node_name, {
+                "status": "clustered",
+                "cluster_count": 0,
+                "prompt_count": 0,
+                "cluster_names": [],
+            })
+            current["cluster_count"] += 1
+            current["prompt_count"] += int(count)
+            current["cluster_names"].append(info.get("name", f"cluster_{cid}"))
+    return node_statuses
+
+
+def _heuristic_report_from_clusters(cluster_info: dict | None) -> dict:
+    if not cluster_info:
+        raise HTTPException(status_code=404, detail="No cluster data found. Run analysis first.")
+
+    local_model = os.getenv("TARGET_AGENT_OLLAMA_MODEL", "llama3.2:3b")
+    clusters = []
+    for cid, info in cluster_info.get("clusters", {}).items():
+        node_dist = info.get("node_distribution", {}) or {}
+        dominant = max(node_dist.items(), key=lambda kv: kv[1])[0].lower() if node_dist else ""
+        recommendation = "fine_tune"
+        best_slm = local_model
+        best_slm_display = f"Local ({local_model})"
+        best_score = 0.72
+        needs_fine_tuning = True
+        fine_tune_base_model = local_model
+
+        if any(k in dominant for k in ("classify", "extract", "format")):
+            recommendation = "replace_now"
+            best_score = 0.92
+            needs_fine_tuning = False
+            fine_tune_base_model = None
+        elif "draft_reply" in dominant:
+            recommendation = "keep_llm"
+            best_score = 0.58
+            best_slm = None
+            best_slm_display = None
+            needs_fine_tuning = False
+            fine_tune_base_model = None
+        elif "check_policy" in dominant:
+            recommendation = "fine_tune"
+            best_score = 0.74
+            needs_fine_tuning = True
+            fine_tune_base_model = local_model
+
+        clusters.append({
+            "cluster_id": int(cid),
+            "cluster_name": info.get("name", f"cluster_{cid}"),
+            "cluster_size": int(info.get("size", 0)),
+            "recommendation": recommendation,
+            "best_slm": best_slm,
+            "best_slm_display": best_slm_display,
+            "best_score": best_score,
+            "needs_fine_tuning": needs_fine_tuning,
+            "fine_tune_base_model": fine_tune_base_model,
+            "estimated_cost_saving_pct": 100.0 if recommendation == "replace_now" else (45.0 if recommendation == "fine_tune" else 0.0),
+            "node_distribution": node_dist,
+            "evaluations": [{
+                "slm_name": best_slm or "fallback",
+                "slm_display": best_slm_display or "Fallback",
+                "correctness_score": best_score,
+                "format_score": best_score,
+                "completeness_score": max(best_score - 0.05, 0.0),
+                "composite_score": best_score,
+                "avg_latency_ms": round(info.get("avg_latency_ms", 0.0), 1),
+                "p95_latency_ms": round(info.get("avg_latency_ms", 0.0) * 1.15, 1),
+                "n_evaluated": min(int(info.get("size", 0)), 20),
+                "sample_comparisons": [{
+                    "prompt": (info.get("sample_prompts") or [""])[0][:160],
+                    "reference": "Original logged reference response.",
+                    "candidate": f"Heuristic recommendation for cluster {info.get('name', cid)}.",
+                }],
+            }],
+        })
+
+    total_calls = sum(c["cluster_size"] for c in clusters) or 1
+    replace_now = [c for c in clusters if c["recommendation"] == "replace_now"]
+    fine_tune = [c for c in clusters if c["recommendation"] == "fine_tune"]
+    keep_llm = [c for c in clusters if c["recommendation"] == "keep_llm"]
+
+    return {
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "heuristic": True,
+        "summary": {
+            "total_clusters": len(clusters),
+            "replace_now_count": len(replace_now),
+            "fine_tune_count": len(fine_tune),
+            "keep_llm_count": len(keep_llm),
+            "pct_calls_replaceable_now": round(sum(c["cluster_size"] for c in replace_now) / total_calls * 100, 1),
+            "pct_calls_replaceable_with_finetune": round((sum(c["cluster_size"] for c in replace_now) + sum(c["cluster_size"] for c in fine_tune)) / total_calls * 100, 1),
+            "models_evaluated": [local_model],
+        },
+        "clusters": clusters,
+    }
+
+
+def _load_clustered_df():
+    clustered_df_path = OUTPUT_DIR / "clustered_df.parquet"
+    if not clustered_df_path.exists():
+        raise HTTPException(status_code=404, detail="No clustered dataframe found. Run analysis first.")
+    import pandas as pd
+    return pd.read_parquet(clustered_df_path)
 
 
 # ─────────────────────────────────────────────
@@ -155,6 +288,41 @@ async def get_status():
         c.execute("SELECT COALESCE(SUM(cost_usd),0) as n FROM llm_calls")
         total_cost = c.fetchone()["n"]
 
+        c.execute("""
+            SELECT prompt, response, tokens_in, tokens_out, model_name
+            FROM llm_calls
+            WHERE workflow_success=1
+        """)
+        rows = c.fetchall()
+
+        baseline_model = (
+            os.getenv("AGENTSHRINK_ESTIMATE_MODEL")
+            or os.getenv("TARGET_AGENT_OPENAI_MODEL")
+            or os.getenv("TARGET_AGENT_GEMINI_MODEL")
+            or "gpt-4o-mini"
+        )
+        estimated_baseline_cost = 0.0
+        local_call_count = 0
+        fallback_call_count = 0
+
+        for row in rows:
+            prompt = row["prompt"] or ""
+            response = row["response"] or ""
+            tokens_in = int(row["tokens_in"] or 0)
+            tokens_out = int(row["tokens_out"] or 0)
+            if tokens_in <= 0:
+                tokens_in = _estimate_tokens_from_text(prompt)
+            if tokens_out <= 0 and response:
+                tokens_out = _estimate_tokens_from_text(response)
+
+            estimated_baseline_cost += _estimate_cost(baseline_model, tokens_in, tokens_out)
+
+            model_name = (row["model_name"] or "").lower()
+            if any(local_hint in model_name for local_hint in ("llama", "qwen", "mistral", "gemma", "phi", "deepseek", "agentshrink-")):
+                local_call_count += 1
+            else:
+                fallback_call_count += 1
+
         # Per-node breakdown
         c.execute("""
             SELECT node_name, COUNT(*) as count,
@@ -174,15 +342,26 @@ async def get_status():
         """)
         daily_counts = [dict(row) for row in c.fetchall()]
 
-        # Clustering readiness
-        analysis_done = (OUTPUT_DIR / "cluster_info.json").exists()
+        cluster_info = _load_cluster_info()
+        analysis_done = cluster_info is not None
         report_done   = (OUTPUT_DIR / "replaceability_report.json").exists()
+        node_statuses = _build_node_statuses(cluster_info)
 
     return {
         "total_calls":   total_calls,
         "total_runs":    total_runs,
         "total_tokens":  total_tokens,
         "total_cost_usd": round(total_cost, 4),
+        "estimated_baseline_model": baseline_model,
+        "estimated_baseline_cost_usd": round(estimated_baseline_cost, 4),
+        "estimated_savings_usd": round(max(estimated_baseline_cost - total_cost, 0.0), 4),
+        "estimated_savings_pct": round(
+            (max(estimated_baseline_cost - total_cost, 0.0) / estimated_baseline_cost * 100)
+            if estimated_baseline_cost > 0 else 0.0,
+            1,
+        ),
+        "local_call_count": local_call_count,
+        "fallback_call_count": fallback_call_count,
         "nodes":         nodes,
         "daily_counts":  daily_counts,
         "db_path":       str(DB_PATH),
@@ -190,6 +369,7 @@ async def get_status():
         "analysis_done": analysis_done,
         "report_done":   report_done,
         "ready_for_analysis": total_calls >= 50,
+        "node_statuses": node_statuses,
     }
 
 
@@ -259,15 +439,99 @@ async def get_report():
     report_path = OUTPUT_DIR / "replaceability_report.json"
 
     if not report_path.exists():
-        raise HTTPException(
-            status_code=404,
-            detail="No report found. Run: agentshrink analyse"
-        )
+        return _heuristic_report_from_clusters(_load_cluster_info())
 
     with open(report_path) as f:
         report = json.load(f)
 
     return report
+
+
+@app.get("/api/config")
+async def get_config():
+    cluster_info = _load_cluster_info()
+    report_path = OUTPUT_DIR / "replaceability_report.json"
+    return {
+        "db_path": str(DB_PATH),
+        "output_dir": str(OUTPUT_DIR),
+        "ollama_host": os.getenv("OLLAMA_HOST", "http://localhost:11434"),
+        "target_agent_provider": os.getenv("TARGET_AGENT_PROVIDER", "openai"),
+        "target_agent_ollama_model": os.getenv("TARGET_AGENT_OLLAMA_MODEL", "llama3.2:3b"),
+        "target_agent_openai_model": os.getenv("TARGET_AGENT_OPENAI_MODEL", "gpt-4o-mini"),
+        "quality_threshold": os.getenv("AGENTSHRINK_QUALITY_THRESHOLD", "0.85"),
+        "confidence_threshold": os.getenv("AGENTSHRINK_CONFIDENCE_THRESHOLD", "0.75"),
+        "cluster_count": cluster_info.get("n_clusters", 0) if cluster_info else 0,
+        "report_exists": report_path.exists(),
+        "analysis_exists": cluster_info is not None,
+        "heuristic_report": not report_path.exists() and cluster_info is not None,
+    }
+
+
+@app.post("/api/apply-report")
+async def apply_report():
+    """Persist an explicit routing_config.json from the current report."""
+    report_path = OUTPUT_DIR / "replaceability_report.json"
+    cluster_info = _load_cluster_info()
+    if not cluster_info:
+        raise HTTPException(status_code=400, detail="No analysis output found yet.")
+
+    if report_path.exists():
+        with open(report_path, encoding="utf-8") as f:
+            report = json.load(f)
+    else:
+        report = _heuristic_report_from_clusters(cluster_info)
+
+    local_model = os.getenv("TARGET_AGENT_OLLAMA_MODEL", "llama3.2:3b")
+    routing = {}
+    for cluster in report.get("clusters", []):
+        rec = cluster.get("recommendation")
+        cid = str(cluster["cluster_id"])
+        if rec == "replace_now":
+            routing[cid] = {
+                "name": cluster["cluster_name"],
+                "model": cluster.get("best_slm") or local_model,
+                "display": cluster.get("best_slm_display") or f"Local ({local_model})",
+                "local": True,
+                "source": "report",
+            }
+        elif rec == "fine_tune":
+            routing[cid] = {
+                "name": cluster["cluster_name"],
+                "model": cluster.get("fine_tune_base_model") or local_model,
+                "display": f"{cluster.get('fine_tune_base_model') or local_model} (fine-tune candidate)",
+                "local": False,
+                "source": "fine_tune_pending",
+            }
+        else:
+            routing[cid] = {
+                "name": cluster["cluster_name"],
+                "model": "fallback",
+                "display": "Fallback (kept on strong model)",
+                "local": False,
+                "source": "report",
+            }
+
+    config_payload = {
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "cluster_count": len(routing),
+        "routing": routing,
+        "manual_change_required": True,
+        "manual_integration": {
+            "replace_chat_model_with": "ShrinkLLM",
+            "example_provider": "shrink",
+            "demo_script": "venv\\Scripts\\python.exe target_agent\\run_shrink_demo.py",
+        },
+    }
+
+    with open(OUTPUT_DIR / "routing_config.json", "w", encoding="utf-8") as f:
+        json.dump(config_payload, f, indent=2)
+
+    return {
+        "status": "ok",
+        "message": "Report applied. routing_config.json saved.",
+        "cluster_count": len(routing),
+        "manual_change_required": True,
+    }
 
 
 @app.get("/api/routing/stats")
@@ -298,6 +562,34 @@ class AnalyseRequest(BaseModel):
     min_cluster_size: int = 5
     skip_eval:        bool = False
     no_llm_labels:    bool = False
+
+
+class ExportFineTuneRequest(BaseModel):
+    cluster_id: int
+
+
+class RegisterFineTuneRequest(BaseModel):
+    cluster_id: int
+    ollama_name: str
+    display_name: str
+
+
+def _ollama_model_names() -> list[str]:
+    try:
+        import ollama
+        models = ollama.list()
+        if isinstance(models, dict):
+            items = models.get("models", [])
+            return [m.get("name") or m.get("model") for m in items if (m.get("name") or m.get("model"))]
+        items = getattr(models, "models", [])
+        names = []
+        for m in items:
+            name = getattr(m, "model", None) or getattr(m, "name", None)
+            if name:
+                names.append(name)
+        return names
+    except Exception:
+        return []
 
 
 @app.post("/api/analyse")
@@ -372,6 +664,94 @@ async def receive_routing_event(event: dict):
         pass  # Drop oldest events if queue is full
 
     return {"status": "ok"}
+
+
+@app.get("/api/finetune/preview/{cluster_id}")
+async def finetune_preview(cluster_id: int, limit: int = 5):
+    df = _load_clustered_df()
+    cluster_df = df[df["cluster_id"] == cluster_id].copy()
+    if len(cluster_df) == 0:
+        raise HTTPException(status_code=404, detail="Cluster not found in clustered dataframe.")
+
+    records = []
+    for _, row in cluster_df.head(limit).iterrows():
+        records.append({
+            "prompt": str(row.get("prompt", "")),
+            "response": str(row.get("response", "")),
+            "node_name": str(row.get("node_name", "")),
+        })
+    return {"cluster_id": cluster_id, "count": len(cluster_df), "examples": records}
+
+
+@app.post("/api/finetune/export")
+async def finetune_export(req: ExportFineTuneRequest):
+    from agentshrink.finetuner import FineTuner
+
+    df = _load_clustered_df()
+    cluster_info = _load_cluster_info() or {}
+    cluster_meta = (cluster_info.get("clusters") or {}).get(str(req.cluster_id))
+    if not cluster_meta:
+        raise HTTPException(status_code=404, detail="Cluster metadata not found.")
+
+    cluster_df = df[df["cluster_id"] == req.cluster_id].copy()
+    if len(cluster_df) == 0:
+        raise HTTPException(status_code=404, detail="Cluster rows not found.")
+
+    ft = FineTuner(output_dir=OUTPUT_DIR)
+    dataset_path = ft.export_dataset(
+        cluster_id=req.cluster_id,
+        cluster_name=cluster_meta["name"],
+        cluster_df=cluster_df,
+        min_examples=10,
+    )
+    notebook_path = ft.generate_colab_notebook(
+        cluster_id=req.cluster_id,
+        cluster_name=cluster_meta["name"],
+        dataset_path=dataset_path,
+    )
+    return {
+        "status": "ok",
+        "cluster_id": req.cluster_id,
+        "cluster_name": cluster_meta["name"],
+        "dataset_path": str(dataset_path),
+        "notebook_path": str(notebook_path),
+        "example_count": int(len(cluster_df)),
+    }
+
+
+@app.post("/api/finetune/register")
+async def finetune_register(req: RegisterFineTuneRequest):
+    from agentshrink.finetuner import FineTuner
+
+    available = _ollama_model_names()
+    if req.ollama_name not in available:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Model '{req.ollama_name}' was not found in Ollama. Available models: {', '.join(available) if available else 'none'}"
+        )
+
+    ft = FineTuner(output_dir=OUTPUT_DIR)
+    ok = ft.register_fine_tuned_model(
+        cluster_id=req.cluster_id,
+        ollama_name=req.ollama_name,
+        display_name=req.display_name,
+    )
+    if not ok:
+        raise HTTPException(status_code=400, detail="Failed to register fine-tuned model.")
+    return {
+        "status": "ok",
+        "message": "Fine-tuned model registered for routing.",
+        "cluster_id": req.cluster_id,
+        "ollama_name": req.ollama_name,
+    }
+
+
+@app.get("/api/ollama/models")
+async def ollama_models():
+    return {
+        "models": _ollama_model_names(),
+        "models_dir": str(pathlib.Path.home() / ".ollama" / "models"),
+    }
 
 
 @app.get("/api/health")

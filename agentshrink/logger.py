@@ -127,6 +127,9 @@ TOKEN_PRICES = {
     "gpt-4-turbo":      {"in": 0.010,  "out": 0.030},
     "gpt-3.5-turbo":    {"in": 0.0005, "out": 0.0015},
     "claude-3-5-sonnet": {"in": 0.003, "out": 0.015},
+    "gemini-2.0-flash": {"in": 0.0001, "out": 0.0004},
+    "gemini-2.0-flash-lite": {"in": 0.000075, "out": 0.0003},
+    "gemini-2.5-flash": {"in": 0.0003, "out": 0.0025},
 }
 
 

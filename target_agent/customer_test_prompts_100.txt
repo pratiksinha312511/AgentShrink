@@ -1,0 +1,100 @@
+I ordered black shoes (ORD-20001) but received white ones. Need refund.
+My package ORD-20002 arrived broken. The glass was shattered.
+Got the wrong size for my jacket ORD-20003. Want to return.
+Received completely different product than shown (ORD-20004).
+The item in ORD-20005 is defective out of the box.
+My headphones from ORD-20006 stopped working immediately.
+The product I got (ORD-20007) is not what I ordered.
+I received a used item instead of new (ORD-20008).
+Missing parts in order ORD-20009. Can't use it.
+Product color mismatch in ORD-20010. Want refund.
+I changed my mind about ORD-20011. Can I return it?
+Don't need the product anymore (ORD-20012).
+Ordered by mistake (ORD-20013). Want refund.
+Bought wrong item accidentally (ORD-20014).
+I no longer want ORD-20015.
+Can I cancel and refund ORD-20016?
+I regret buying ORD-20017.
+Return request for ORD-20018.
+Decided not to keep ORD-20019.
+Want to send back ORD-20020.
+I purchased a digital course (ORD-20021) but didn't like it.
+Ebook ORD-20022 is not useful. Refund?
+Bought software license ORD-20023. Want refund.
+Didn't enjoy digital download ORD-20024.
+Subscription from ORD-20025 not what I expected.
+My order ORD-20026 is 15 days late. Where is it?
+Package ORD-20027 hasn't arrived for 3 weeks.
+Delivery delayed for ORD-20028.
+Still waiting on ORD-20029 after 20 days.
+Order ORD-20030 is stuck in transit.
+Tracking hasn't updated for ORD-20031.
+Order ORD-20032 is extremely delayed.
+It's been 18 days since ORD-20033.
+Why is ORD-20034 taking so long?
+Delivery overdue for ORD-20035.
+ORD-20036 shows delivered but I didn't get it.
+My package ORD-20037 was stolen after delivery.
+Carrier says delivered for ORD-20038 but nothing here.
+ORD-20039 missing after delivery confirmation.
+I never received ORD-20040.
+Package ORD-20041 lost in transit.
+Courier lost my order ORD-20042.
+ORD-20043 marked delivered to wrong address.
+Delivery photo doesn't match my house (ORD-20044).
+Neighbor received ORD-20045 by mistake.
+My laptop ORD-20046 stopped working after 1 day.
+Phone from ORD-20047 overheats constantly.
+TV from ORD-20048 has screen flickering.
+Product in ORD-20049 is faulty.
+My device ORD-20050 won't turn on.
+Item ORD-20051 is malfunctioning.
+Product ORD-20052 crashes repeatedly.
+Battery issue in ORD-20053.
+The product from ORD-20054 is unusable.
+Defective item received in ORD-20055.
+I got the wrong item AND it was damaged (ORD-20056).
+Order ORD-20057 arrived late and broken.
+Wrong product delivered after delay (ORD-20058).
+ORD-20059 missing parts and delayed delivery.
+Product faulty AND wrong color (ORD-20060).
+I received a broken item but don't have my order ID.
+My package never arrived. Can you check?
+I want a refund but lost my order number.
+Something is wrong with my purchase but I forgot the ID.
+My delivery is late but I don't know the order number.
+I'm unhappy with my purchase (ORD-20066).
+This product didn't meet expectations (ORD-20067).
+I want help with my order ORD-20068.
+Something feels off about ORD-20069.
+Not satisfied with ORD-20070.
+My order #20071 arrived broken.
+Order number 20072 is missing.
+Ref: ORD20073 not delivered.
+Order id: ord-20074 delayed.
+Purchase ID 20075 is wrong item.
+This is ridiculous! ORD-20076 is still not delivered.
+I'm very disappointed with ORD-20077.
+Worst experience ever. ORD-20078 broken item.
+I want my money back NOW (ORD-20079).
+Extremely unhappy with ORD-20080.
+Hello, just checking status of ORD-20081.
+Thanks for the delivery (ORD-20082).
+Ignore my previous complaint about ORD-20083.
+I want to upgrade my order ORD-20084.
+Can I exchange instead of refund (ORD-20085)?
+Partial refund request for ORD-20086.
+I received only half my order (ORD-20087).
+Duplicate order placed (ORD-20088).
+Charged twice for ORD-20089.
+Order cancelled but still delivered (ORD-20090).
+I changed my mind after 10 days (ORD-20091).
+Product marked final sale but I want refund (ORD-20092).
+Digital product but it doesn't work (ORD-20093).
+Delivery delayed 13 days (ORD-20094).
+Delivery delayed exactly 14 days (ORD-20095).
+Item damaged but I caused it (ORD-20096).
+Used product for a week, now want refund (ORD-20097).
+Opened package and didn't like it (ORD-20098).
+Product works but I don't want it (ORD-20099).
+Item slightly scratched (ORD-20100).

@@ -25,7 +25,7 @@ AgentShrink will discover this automatically.
 """
 
 import os
-from typing import TypedDict, Annotated
+from typing import TypedDict
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -59,6 +59,20 @@ class SupportState(TypedDict):
 # In Phase 1, you'll add: callbacks=[AgentShrinkLogger()]
 # ─────────────────────────────────────────────
 
+def _target_agent_provider() -> str:
+    """Return which backend the demo agent should use."""
+    return os.getenv("TARGET_AGENT_PROVIDER", "openai").strip().lower()
+
+
+def _target_agent_model(provider: str) -> str:
+    """Pick the configured model name for the selected provider."""
+    if provider in {"ollama", "shrink"}:
+        return os.getenv("TARGET_AGENT_OLLAMA_MODEL", "llama3.2:3b")
+    if provider == "gemini":
+        return os.getenv("TARGET_AGENT_GEMINI_MODEL", "gemini-2.0-flash-lite")
+    return os.getenv("TARGET_AGENT_OPENAI_MODEL", "gpt-4o-mini")
+
+
 def get_llm(callbacks=None):
     """
     Returns the LLM instance.
@@ -66,10 +80,54 @@ def get_llm(callbacks=None):
     When callbacks=None, the agent runs normally with no logging.
     When callbacks=[AgentShrinkLogger()], every call gets captured.
     """
-    return ChatOpenAI(
-        model="gpt-4o-mini",   # Using gpt-4o-mini to keep costs low during development
-        temperature=0,          # Deterministic output — important for reproducibility
-        callbacks=callbacks or []
+    provider = _target_agent_provider()
+    model = _target_agent_model(provider)
+    temperature = float(os.getenv("TARGET_AGENT_TEMPERATURE", "0"))
+    callbacks = callbacks or []
+
+    if provider == "ollama":
+        from langchain_ollama import ChatOllama
+
+        return ChatOllama(
+            model=model,
+            temperature=temperature,
+            callbacks=callbacks,
+            base_url=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
+        )
+
+    if provider == "shrink":
+        from agentshrink import ShrinkLLM
+
+        return ShrinkLLM(
+            output_dir=os.getenv("AGENTSHRINK_OUTPUT_DIR", ".agentshrink_output"),
+            fallback_provider=os.getenv("SHRINKLLM_FALLBACK_PROVIDER", "ollama"),
+            fallback_model=os.getenv("SHRINKLLM_FALLBACK_MODEL", model),
+            confidence_threshold=float(os.getenv("AGENTSHRINK_CONFIDENCE_THRESHOLD", "0.75")),
+            temperature=temperature,
+            trace_mode=os.getenv("SHRINKLLM_TRACE_MODE", "1") == "1",
+            callbacks=callbacks,
+        )
+
+    if provider == "openai":
+        return ChatOpenAI(
+            model=model,
+            temperature=temperature,
+            callbacks=callbacks,
+        )
+
+    if provider == "gemini":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+
+        return ChatGoogleGenerativeAI(
+            model=model,
+            temperature=temperature,
+            google_api_key=os.getenv("GOOGLE_API_KEY"),
+            callbacks=callbacks,
+        )
+
+    raise ValueError(
+        f"Unsupported TARGET_AGENT_PROVIDER='{provider}'. "
+        "Use 'openai', 'gemini', 'ollama', or 'shrink'."
     )
 
 
@@ -332,19 +390,19 @@ def build_agent(callbacks=None):
     graph = StateGraph(SupportState)
 
     # Add all nodes
-    graph.add_node("classify",      classify)
-    graph.add_node("extract",       extract)
-    graph.add_node("check_policy",  check_policy)
-    graph.add_node("draft_reply",   draft_reply)
-    graph.add_node("format_output", format_out)
+    graph.add_node("classify_node",      classify)
+    graph.add_node("extract_node",       extract)
+    graph.add_node("check_policy_node",  check_policy)
+    graph.add_node("draft_reply_node",   draft_reply)
+    graph.add_node("format_output_node", format_out)
 
     # Wire them in sequence
-    graph.add_edge(START,           "classify")
-    graph.add_edge("classify",      "extract")
-    graph.add_edge("extract",       "check_policy")
-    graph.add_edge("check_policy",  "draft_reply")
-    graph.add_edge("draft_reply",   "format_output")
-    graph.add_edge("format_output", END)
+    graph.add_edge(START,                 "classify_node")
+    graph.add_edge("classify_node",       "extract_node")
+    graph.add_edge("extract_node",        "check_policy_node")
+    graph.add_edge("check_policy_node",   "draft_reply_node")
+    graph.add_edge("draft_reply_node",    "format_output_node")
+    graph.add_edge("format_output_node",  END)
 
     return graph.compile()
 
@@ -383,11 +441,14 @@ if __name__ == "__main__":
     import json
 
     console = Console()
+    provider = _target_agent_provider()
+    model = _target_agent_model(provider)
 
     console.print(Panel.fit(
         "[bold]Phase 0 — Target Agent Test[/bold]\n"
         "Running 3 test messages through the agent.\n"
-        "Every call uses GPT-4o — even the simple ones.\n"
+        f"Provider: {provider} ({model})\n"
+        "Every call uses the same model — even the simple ones.\n"
         "This is what AgentShrink will fix.",
         border_style="yellow"
     ))

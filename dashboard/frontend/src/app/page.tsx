@@ -11,18 +11,31 @@ interface Status {
   total_runs: number
   total_tokens: number
   total_cost_usd: number
+  estimated_baseline_model?: string
+  estimated_baseline_cost_usd?: number
+  estimated_savings_usd?: number
+  estimated_savings_pct?: number
+  local_call_count?: number
+  fallback_call_count?: number
   nodes: Array<{ node_name: string; count: number; avg_latency: number; avg_cost: number }>
   daily_counts: Array<{ day: string; count: number }>
   has_data: boolean
   analysis_done: boolean
   report_done: boolean
   ready_for_analysis: boolean
+  node_statuses?: Record<string, {
+    status: string
+    cluster_count: number
+    prompt_count: number
+    cluster_names: string[]
+  }>
 }
 
 export default function OverviewPage() {
   const [status, setStatus]     = useState<Status | null>(null)
   const [loading, setLoading]   = useState(true)
   const [analysing, setAnalysing] = useState(false)
+  const [analysisMsg, setAnalysisMsg] = useState('')
 
   useEffect(() => {
     const load = async () => {
@@ -37,8 +50,20 @@ export default function OverviewPage() {
 
   const handleAnalyse = async () => {
     setAnalysing(true)
-    await triggerAnalyse({ min_cluster_size: 5, skip_eval: false })
-    setTimeout(() => setAnalysing(false), 3000)
+    setAnalysisMsg('Starting local-safe analysis...')
+    try {
+      const result = await triggerAnalyse({
+        min_cluster_size: 5,
+        skip_eval: true,
+        no_llm_labels: true,
+      })
+      setAnalysisMsg(result?.message ?? 'Analysis started')
+    } catch (e) {
+      console.error(e)
+      setAnalysisMsg('Failed to start analysis')
+    } finally {
+      setTimeout(() => setAnalysing(false), 3000)
+    }
   }
 
   const phaseLabel = () => {
@@ -92,13 +117,37 @@ export default function OverviewPage() {
         </div>
       </div>
 
+      {analysisMsg && (
+        <div className="card" style={{ padding: '10px 14px', marginBottom: 16, fontSize: 12, color: 'var(--text-secondary)' }}>
+          {analysisMsg}
+        </div>
+      )}
+
+      {status?.has_data && (
+        <div className="card" style={{ padding: '12px 14px', marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>
+            Local-only savings estimate
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+            If these calls had all gone to <span style={{ fontFamily: 'monospace' }}>{status.estimated_baseline_model ?? 'gpt-4o-mini'}</span>,
+            you would have spent about <strong style={{ color: 'var(--text-primary)' }}> ${status.estimated_baseline_cost_usd?.toFixed(4) ?? '0.0000'}</strong>.
+            Based on the models used in your logs, AgentShrink avoided about
+            <strong style={{ color: '#1D9E75' }}> ${status.estimated_savings_usd?.toFixed(4) ?? '0.0000'}</strong>
+            {' '}({status.estimated_savings_pct?.toFixed(1) ?? '0.0'}%).
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>
+            Local calls: {status.local_call_count ?? 0} · fallback/strong-model calls: {status.fallback_call_count ?? 0}
+          </div>
+        </div>
+      )}
+
       {/* Metrics strip */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10, marginBottom: 24 }}>
         {[
           { label: 'LLM calls captured', value: status?.total_calls?.toLocaleString() ?? '0', change: 'total' },
           { label: 'Agent runs',         value: status?.total_runs?.toLocaleString() ?? '0', change: 'unique' },
           { label: 'Total tokens',       value: status?.total_tokens ? (status.total_tokens / 1000).toFixed(1) + 'K' : '0', change: 'used' },
-          { label: 'Est. API cost',      value: `$${status?.total_cost_usd?.toFixed(4) ?? '0.0000'}`, change: 'before shrink' },
+          { label: 'Spend avoided',      value: `$${status?.estimated_savings_usd?.toFixed(4) ?? '0.0000'}`, change: `vs ${status?.estimated_baseline_model ?? 'gpt-4o-mini'}` },
         ].map(m => (
           <div className="metric-card" key={m.label}>
             <div className="metric-num">{m.value}</div>
@@ -107,6 +156,29 @@ export default function OverviewPage() {
           </div>
         ))}
       </div>
+
+      {status?.has_data && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 24 }}>
+          <div className="metric-card" style={{ alignItems: 'flex-start' }}>
+            <div className="metric-num" style={{ color: 'var(--text-primary)' }}>
+              ${status?.estimated_baseline_cost_usd?.toFixed(4) ?? '0.0000'}
+            </div>
+            <div className="metric-label">Estimated cloud cost</div>
+            <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 3 }}>
+              if every call used {status?.estimated_baseline_model ?? 'gpt-4o-mini'}
+            </div>
+          </div>
+          <div className="metric-card" style={{ alignItems: 'flex-start' }}>
+            <div className="metric-num" style={{ color: '#7F77DD' }}>
+              ${status?.total_cost_usd?.toFixed(4) ?? '0.0000'}
+            </div>
+            <div className="metric-label">Observed spend in logs</div>
+            <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 3 }}>
+              actual cost captured from your current providers
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Daily calls chart */}
       <div className="card" style={{ padding: '16px 20px', marginBottom: 20 }}>
@@ -166,7 +238,19 @@ export default function OverviewPage() {
                   <td style={{ padding: '9px 14px', color: 'var(--text-secondary)' }}>{Math.round(node.avg_latency)}ms</td>
                   <td style={{ padding: '9px 14px', color: 'var(--text-secondary)' }}>${(node.avg_cost || 0).toFixed(5)}</td>
                   <td style={{ padding: '9px 14px' }}>
-                    <span className="badge badge-purple">not clustered</span>
+                    {status.node_statuses?.[node.node_name] ? (
+                      <span
+                        className="badge"
+                        title={status.node_statuses[node.node_name].cluster_names.join(', ')}
+                        style={{ background: '#EEEDFE', color: '#3C3489' }}
+                      >
+                        clustered ({status.node_statuses[node.node_name].cluster_count})
+                      </span>
+                    ) : (
+                      <span className="badge" style={{ background: '#F5F1EA', color: '#8A7E72' }}>
+                        not clustered
+                      </span>
+                    )}
                   </td>
                 </tr>
               ))}

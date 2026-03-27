@@ -8,6 +8,10 @@ interface RouteEvent {
   model_display: string
   confidence:    number
   is_local:      boolean
+  nearest_cluster_name?: string
+  nearest_similarity?: number
+  threshold?: number
+  reason?: string
   prompt_preview?: string
   latency_ms?:   number
   timestamp:     number
@@ -56,6 +60,10 @@ export default function RoutingPage() {
               model_display: data.model_display ?? data.model_name ?? 'unknown',
               confidence:    data.confidence    ?? 0,
               is_local:      data.is_local      ?? false,
+              nearest_cluster_name: data.nearest_cluster_name,
+              nearest_similarity: data.nearest_similarity,
+              threshold: data.threshold,
+              reason: data.reason,
               prompt_preview: data.prompt_preview,
               latency_ms:    data.latency_ms,
               timestamp:     data.timestamp     ?? Date.now() / 1000,
@@ -172,7 +180,7 @@ export default function RoutingPage() {
         {/* Column headers */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: '72px 1fr 120px 70px',
+          gridTemplateColumns: '72px 1fr 120px 180px 70px',
           gap: 10, padding: '8px 14px',
           background: 'var(--bg-secondary)',
           borderBottom: '0.5px solid var(--border)',
@@ -183,6 +191,7 @@ export default function RoutingPage() {
           <span>Time</span>
           <span>Prompt / Cluster</span>
           <span>Routed to</span>
+          <span>Routing debug</span>
           <span>Confidence</span>
         </div>
 
@@ -201,7 +210,7 @@ export default function RoutingPage() {
                 key={i}
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '72px 1fr 120px 70px',
+                  gridTemplateColumns: '72px 1fr 120px 180px 70px',
                   gap: 10, padding: '7px 12px',
                   background: i % 2 === 0 ? 'var(--bg-secondary)' : 'transparent',
                   borderRadius: 5,
@@ -224,6 +233,14 @@ export default function RoutingPage() {
                   )}
                 </div>
                 <ModelBadge isLocal={ev.is_local} model={ev.model_display} />
+                <div style={{ fontSize: 10, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
+                  <div>nearest: {ev.nearest_cluster_name || 'n/a'}</div>
+                  <div>sim: {((ev.nearest_similarity ?? 0) * 100).toFixed(0)}%</div>
+                  <div>thr: {((ev.threshold ?? 0) * 100).toFixed(0)}%</div>
+                  <div style={{ overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                    {ev.reason || ''}
+                  </div>
+                </div>
                 <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--text-tertiary)', paddingTop: 2 }}>
                   {(ev.confidence * 100).toFixed(0)}%
                   {ev.latency_ms && <span style={{ display: 'block', fontSize: 10 }}>{Math.round(ev.latency_ms)}ms</span>}

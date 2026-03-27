@@ -27,6 +27,7 @@ WHY EACH STEP MATTERS:
     (test calls, health checks) not real agent calls.
 """
 
+import os
 import re
 import sqlite3
 import pathlib
@@ -35,8 +36,36 @@ import numpy as np
 import pandas as pd
 from typing import Optional
 from dataclasses import dataclass
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.preprocessing import normalize
 
 logger = logging.getLogger(__name__)
+
+
+class TfidfEmbedder:
+    """Fallback embedder for environments where torch/sentence-transformers fail."""
+
+    def __init__(self, max_features: int = 512):
+        self.vectorizer = TfidfVectorizer(
+            max_features=max_features,
+            ngram_range=(1, 2),
+            lowercase=True,
+        )
+        self._is_fit = False
+
+    def fit_transform_texts(self, texts: list[str]) -> np.ndarray:
+        matrix = self.vectorizer.fit_transform(texts)
+        self._is_fit = True
+        return normalize(matrix).astype(np.float32).toarray()
+
+    def encode(self, texts, show_progress_bar=False, normalize_embeddings=True):
+        if not self._is_fit:
+            return self.fit_transform_texts(texts)
+
+        matrix = self.vectorizer.transform(texts)
+        if normalize_embeddings:
+            matrix = normalize(matrix)
+        return matrix.astype(np.float32).toarray()
 
 # ─────────────────────────────────────────────
 # CONFIGURATION
@@ -154,11 +183,23 @@ class DataCurator:
         then the garbage collector can free it before Ollama loads.
         """
         if self._embedder is None:
-            from sentence_transformers import SentenceTransformer
-            # all-MiniLM-L6-v2: 90MB, fast, good quality for clustering
-            # Perfect balance for 8GB RAM constraint
-            logger.info("Loading sentence transformer (first time only)...")
-            self._embedder = SentenceTransformer("all-MiniLM-L6-v2")
+            try:
+                # Reuse the cached local embedding model and avoid network access
+                # during analysis runs. Preloading torch first also avoids an
+                # intermittent Windows DLL init issue seen in this environment.
+                os.environ.setdefault("HF_HUB_OFFLINE", "1")
+                os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+                import torch  # noqa: F401
+                from sentence_transformers import SentenceTransformer
+
+                logger.info("Loading sentence transformer (first time only)...")
+                self._embedder = SentenceTransformer("all-MiniLM-L6-v2")
+            except Exception as e:
+                logger.warning(
+                    "Falling back to TF-IDF embeddings because sentence-transformers "
+                    f"could not load: {e}"
+                )
+                self._embedder = TfidfEmbedder()
         return self._embedder
 
     def load_from_db(self) -> pd.DataFrame:
@@ -275,24 +316,24 @@ class DataCurator:
 
         embedder = self._get_embedder()
 
+        prompts = df["prompt"].tolist()
         logger.info(f"Computing embeddings for {len(df)} prompts (for deduplication)...")
 
-        # Batch embedding — chunk of 32 to avoid memory spikes on 8GB RAM
-        # sentence-transformers handles batching internally but we control it
-        batch_size = 32
-        all_embeddings = []
-
-        prompts = df["prompt"].tolist()
-        for i in range(0, len(prompts), batch_size):
-            batch = prompts[i:i + batch_size]
-            batch_embeddings = embedder.encode(
-                batch,
-                show_progress_bar=False,
-                normalize_embeddings=True  # Normalize → cosine sim = dot product
-            )
-            all_embeddings.append(batch_embeddings)
-
-        embeddings = np.vstack(all_embeddings)  # Shape: (n_prompts, 384)
+        if hasattr(embedder, "fit_transform_texts"):
+            embeddings = embedder.fit_transform_texts(prompts)
+        else:
+            # Batch embedding - chunk of 32 to avoid memory spikes on 8GB RAM
+            batch_size = 32
+            all_embeddings = []
+            for i in range(0, len(prompts), batch_size):
+                batch = prompts[i:i + batch_size]
+                batch_embeddings = embedder.encode(
+                    batch,
+                    show_progress_bar=False,
+                    normalize_embeddings=True
+                )
+                all_embeddings.append(batch_embeddings)
+            embeddings = np.vstack(all_embeddings)
 
         # Greedy deduplication
         # Keep track of which indices to KEEP

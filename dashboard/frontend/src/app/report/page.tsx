@@ -1,11 +1,11 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { fetchReport } from '@/lib/api'
+import { applyReport, fetchReport } from '@/lib/api'
 
 const REC_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
-  replace_now: { label: 'Replace now ✓', color: '#27500A', bg: '#EAF3DE' },
-  fine_tune:   { label: 'Fine-tune',     color: '#633806', bg: '#FAEEDA' },
-  keep_llm:    { label: 'Keep on API',   color: '#A32D2D', bg: '#FCEBEB' },
+  replace_now: { label: 'Replace now', color: '#27500A', bg: '#EAF3DE' },
+  fine_tune: { label: 'Fine-tune', color: '#633806', bg: '#FAEEDA' },
+  keep_llm: { label: 'Keep on API', color: '#A32D2D', bg: '#FCEBEB' },
 }
 
 function QualityBar({ score }: { score: number }) {
@@ -22,10 +22,12 @@ function QualityBar({ score }: { score: number }) {
 }
 
 export default function ReportPage() {
-  const [report, setReport]   = useState<any>(null)
+  const [report, setReport] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError]     = useState('')
+  const [error, setError] = useState('')
   const [expanded, setExpanded] = useState<number | null>(null)
+  const [applying, setApplying] = useState(false)
+  const [applyMsg, setApplyMsg] = useState('')
 
   useEffect(() => {
     fetchReport()
@@ -35,7 +37,7 @@ export default function ReportPage() {
   }, [])
 
   if (loading) return <div style={{ color: 'var(--text-tertiary)', padding: 40, textAlign: 'center' }}>Loading report...</div>
-  if (error)   return (
+  if (error) return (
     <div className="card" style={{ padding: 32, textAlign: 'center' }}>
       <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 8 }}>No report yet</div>
       <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Run: <code>agentshrink analyse</code></div>
@@ -44,6 +46,20 @@ export default function ReportPage() {
 
   const summary = report?.summary ?? {}
   const clusters = report?.clusters ?? []
+  const heuristic = report?.heuristic === true
+
+  const handleApply = async () => {
+    setApplying(true)
+    setApplyMsg('')
+    try {
+      const res = await applyReport()
+      setApplyMsg(res?.message ?? 'Report applied.')
+    } catch {
+      setApplyMsg('Failed to apply report.')
+    } finally {
+      setApplying(false)
+    }
+  }
 
   return (
     <div style={{ maxWidth: 900 }}>
@@ -56,16 +72,26 @@ export default function ReportPage() {
             Generated at {report?.generated_at?.slice(0, 10)}
           </div>
         </div>
-        <button style={{
-          background: '#1D9E75', color: 'white', border: 'none',
-          borderRadius: 8, padding: '8px 18px', fontSize: 12,
-          fontWeight: 500, cursor: 'pointer',
-        }}>
-          Apply Report →
+        <button
+          onClick={handleApply}
+          disabled={applying}
+          style={{
+            background: '#1D9E75', color: 'white', border: 'none',
+            borderRadius: 8, padding: '8px 18px', fontSize: 12,
+            fontWeight: 500, cursor: 'pointer', opacity: applying ? 0.7 : 1,
+          }}
+        >
+          {applying ? 'Applying...' : 'Apply Report ->'}
         </button>
       </div>
 
-      {/* Summary strip */}
+      {(heuristic || applyMsg) && (
+        <div className="card" style={{ padding: '10px 14px', marginBottom: 16, fontSize: 12, color: 'var(--text-secondary)' }}>
+          {heuristic && <div>This is a heuristic local-only report because full evaluator mode was skipped.</div>}
+          {applyMsg && <div>{applyMsg}</div>}
+        </div>
+      )}
+
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 24 }}>
         <div className="metric-card">
           <div className="metric-num" style={{ color: '#1D9E75' }}>
@@ -83,11 +109,10 @@ export default function ReportPage() {
           <div className="metric-num">
             {summary.replace_now_count ?? 0}/{summary.total_clusters ?? 0}
           </div>
-          <div className="metric-label">clusters → replace now</div>
+          <div className="metric-label">clusters {'->'} replace now</div>
         </div>
       </div>
 
-      {/* Main report table */}
       <div className="card" style={{ overflow: 'hidden' }}>
         <div style={{ padding: '14px 20px', borderBottom: '0.5px solid var(--border)', fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)' }}>
           Cluster analysis
@@ -97,7 +122,6 @@ export default function ReportPage() {
           const isExpanded = expanded === i
           return (
             <div key={cluster.cluster_id}>
-              {/* Row */}
               <div
                 style={{
                   display: 'grid',
@@ -112,7 +136,7 @@ export default function ReportPage() {
                   {cluster.cluster_name}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                  {cluster.best_slm_display ?? '—'}
+                  {cluster.best_slm_display ?? '-'}
                 </div>
                 <QualityBar score={cluster.best_score ?? 0} />
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
@@ -128,10 +152,8 @@ export default function ReportPage() {
                 </div>
               </div>
 
-              {/* Expanded detail */}
               {isExpanded && (
                 <div style={{ padding: '16px 20px', background: 'var(--bg-secondary)', borderBottom: '0.5px solid var(--border)' }}>
-                  {/* Model scores */}
                   <div style={{ marginBottom: 14 }}>
                     <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
                       Model evaluation scores
@@ -147,13 +169,13 @@ export default function ReportPage() {
                           </div>
                           {[
                             { label: 'Correctness', val: ev.correctness_score },
-                            { label: 'Format',      val: ev.format_score },
+                            { label: 'Format', val: ev.format_score },
                             { label: 'Completeness', val: ev.completeness_score },
-                            { label: 'Composite',   val: ev.composite_score },
+                            { label: 'Composite', val: ev.composite_score },
                           ].map(s => (
                             <div key={s.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 3 }}>
                               <span>{s.label}</span>
-                              <span style={{ fontWeight: 500, color: s.val >= 0.85 ? '#1D9E75' : s.val >= 0.60 ? '#EF9F27' : '#D85A30' }}>
+                              <span style={{ fontWeight: 500, color: s.val >= 0.85 ? '#1D9E75' : s.val >= 0.6 ? '#EF9F27' : '#D85A30' }}>
                                 {Math.round(s.val * 100)}%
                               </span>
                             </div>
@@ -166,21 +188,20 @@ export default function ReportPage() {
                     </div>
                   </div>
 
-                  {/* Sample comparisons */}
                   {cluster.evaluations?.[0]?.sample_comparisons?.length > 0 && (
                     <div>
                       <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
-                        Sample comparison (GPT-4o vs best SLM)
+                        Sample comparison (reference vs best local model)
                       </div>
                       {cluster.evaluations[0].sample_comparisons.slice(0, 1).map((cmp: any, j: number) => (
                         <div key={j} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                           <div style={{ background: 'var(--bg-primary)', borderRadius: 6, padding: '10px 12px', border: '0.5px solid var(--border)' }}>
-                            <div style={{ fontSize: 10, fontWeight: 500, color: '#993C1D', textTransform: 'uppercase', marginBottom: 6 }}>GPT-4o response</div>
-                            <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'monospace' }}>{cmp.reference}</div>
+                            <div style={{ fontSize: 10, fontWeight: 500, color: '#993C1D', textTransform: 'uppercase', marginBottom: 6 }}>Reference response</div>
+                            <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>{cmp.reference}</div>
                           </div>
                           <div style={{ background: 'var(--bg-primary)', borderRadius: 6, padding: '10px 12px', border: '0.5px solid #1D9E75' }}>
-                            <div style={{ fontSize: 10, fontWeight: 500, color: '#0F6E56', textTransform: 'uppercase', marginBottom: 6 }}>Local SLM response</div>
-                            <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'monospace' }}>{cmp.candidate}</div>
+                            <div style={{ fontSize: 10, fontWeight: 500, color: '#0F6E56', textTransform: 'uppercase', marginBottom: 6 }}>Local model response</div>
+                            <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>{cmp.candidate}</div>
                           </div>
                         </div>
                       ))}
@@ -189,8 +210,7 @@ export default function ReportPage() {
 
                   {cluster.needs_fine_tuning && (
                     <div style={{ marginTop: 12, padding: '8px 12px', background: '#FAEEDA', borderRadius: 6, fontSize: 12, color: '#633806' }}>
-                      Fine-tuning needed on {cluster.fine_tune_base_model} to reach 85% threshold.
-                      Run: <code>agentshrink finetune --cluster {cluster.cluster_id}</code>
+                      Fine-tuning needed on {cluster.fine_tune_base_model} to reach the target threshold.
                     </div>
                   )}
                 </div>
