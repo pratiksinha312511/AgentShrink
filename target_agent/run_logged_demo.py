@@ -7,6 +7,7 @@ without writing custom glue code in the terminal.
 
 import argparse
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -25,7 +26,7 @@ from target_agent.agent import (
 )
 
 
-def _load_messages(prompt_file: str | None):
+def _load_messages(prompt_file: Optional[str]):
     """Use built-in prompts by default, or load one prompt per line from a file."""
     if not prompt_file:
         return TEST_MESSAGES

@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react'
 import { ScatterChart, Scatter, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { fetchClusters } from '@/lib/api'
 
+const ANALYSIS_STORAGE_KEY = 'agentshrink.analysis.running'
+
 interface ClusterPoint {
   x: number; y: number
   cluster_id: number; cluster_name: string
@@ -62,20 +64,41 @@ export default function ClustersPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState('')
   const [selected, setSelected] = useState<string | null>(null)
+  const [waitingForAnalysis, setWaitingForAnalysis] = useState(false)
 
   useEffect(() => {
-    fetchClusters()
-      .then(setData)
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false))
+    const loadClusters = async () => {
+      try {
+        const nextData = await fetchClusters()
+        setData(nextData)
+        setError('')
+        setWaitingForAnalysis(false)
+        if (nextData.n_clusters > 0) {
+          window.localStorage.removeItem(ANALYSIS_STORAGE_KEY)
+        }
+      } catch (e: any) {
+        setError(e.message)
+        setWaitingForAnalysis(window.localStorage.getItem(ANALYSIS_STORAGE_KEY) === 'true')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadClusters()
+    const interval = setInterval(loadClusters, 5000)
+    return () => clearInterval(interval)
   }, [])
 
   if (loading) return <div style={{ color: 'var(--text-tertiary)', padding: 40, textAlign: 'center' }}>Loading cluster map...</div>
 
   if (error) return (
     <div className="card" style={{ padding: 32, textAlign: 'center' }}>
-      <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 8 }}>No cluster data yet</div>
-      <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Run: <code>agentshrink analyse</code></div>
+      <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 8 }}>
+        {waitingForAnalysis ? 'Analysis is still running' : 'No cluster data yet'}
+      </div>
+      <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+        {waitingForAnalysis ? 'This page refreshes automatically every 5 seconds.' : <>Run: <code>agentshrink analyse</code></>}
+      </div>
     </div>
   )
 

@@ -6,6 +6,8 @@ import {
 } from 'recharts'
 import { fetchStatus, triggerAnalyse } from '@/lib/api'
 
+const ANALYSIS_STORAGE_KEY = 'agentshrink.analysis.running'
+
 interface Status {
   total_calls: number
   total_runs: number
@@ -38,8 +40,27 @@ export default function OverviewPage() {
   const [analysisMsg, setAnalysisMsg] = useState('')
 
   useEffect(() => {
+    const persistedAnalysis = window.localStorage.getItem(ANALYSIS_STORAGE_KEY) === 'true'
+    if (persistedAnalysis) {
+      setAnalysing(true)
+      setAnalysisMsg('Analysis is still running...')
+    }
+
     const load = async () => {
-      try { setStatus(await fetchStatus()) }
+      try {
+        const nextStatus = await fetchStatus()
+        setStatus(nextStatus)
+
+        const running = window.localStorage.getItem(ANALYSIS_STORAGE_KEY) === 'true'
+        if (nextStatus.analysis_done && running) {
+          window.localStorage.removeItem(ANALYSIS_STORAGE_KEY)
+          setAnalysing(false)
+          setAnalysisMsg('Analysis complete. Cluster data is ready.')
+        } else if (running) {
+          setAnalysing(true)
+          setAnalysisMsg('Analysis is still running...')
+        }
+      }
       catch (e) { console.error(e) }
       finally { setLoading(false) }
     }
@@ -50,19 +71,20 @@ export default function OverviewPage() {
 
   const handleAnalyse = async () => {
     setAnalysing(true)
-    setAnalysisMsg('Starting local-safe analysis...')
+    window.localStorage.setItem(ANALYSIS_STORAGE_KEY, 'true')
+    setAnalysisMsg('Starting analysis...')
     try {
       const result = await triggerAnalyse({
         min_cluster_size: 5,
         skip_eval: true,
         no_llm_labels: true,
       })
-      setAnalysisMsg(result?.message ?? 'Analysis started')
+      setAnalysisMsg(result?.message ?? 'Analysis started. This will keep running if you change tabs.')
     } catch (e) {
       console.error(e)
+      window.localStorage.removeItem(ANALYSIS_STORAGE_KEY)
+      setAnalysing(false)
       setAnalysisMsg('Failed to start analysis')
-    } finally {
-      setTimeout(() => setAnalysing(false), 3000)
     }
   }
 

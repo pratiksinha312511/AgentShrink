@@ -29,6 +29,7 @@ import logging
 import os
 from typing import Optional
 from contextlib import asynccontextmanager
+from contextlib import suppress
 
 import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks, HTTPException
@@ -241,8 +242,12 @@ async def lifespan(app: FastAPI):
     logger.info("AgentShrink dashboard backend started")
     logger.info(f"DB: {DB_PATH}")
     logger.info(f"Output: {OUTPUT_DIR}")
-    yield
-    task.cancel()
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
 
 app = FastAPI(
@@ -839,6 +844,8 @@ async def broadcast_routing_events():
         try:
             event = await asyncio.wait_for(routing_event_queue.get(), timeout=5.0)
             await manager.broadcast(event)
+        except asyncio.CancelledError:
+            break
         except asyncio.TimeoutError:
             # Send heartbeat to all clients
             if manager.active:

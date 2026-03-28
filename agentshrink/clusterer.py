@@ -36,6 +36,7 @@ WHY 2D UMAP BEFORE HDBSCAN:
 """
 
 import logging
+import os
 import pathlib
 import numpy as np
 import pandas as pd
@@ -117,6 +118,10 @@ class TaskClusterer:
         MEMORY: embeddings array for 500 prompts = ~0.75MB. Very safe.
         TIME: ~5-15 seconds for 500 prompts on CPU. Acceptable.
         """
+        cache_dir = pathlib.Path(".agentshrink_cache/numba").resolve()
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        os.environ.setdefault("NUMBA_CACHE_DIR", str(cache_dir))
+
         import umap
 
         logger.info(f"Reducing {embeddings.shape[1]}D embeddings to 2D with UMAP...")
@@ -253,6 +258,29 @@ class TaskClusterer:
 
         return cluster_labels
 
+    def _fallback_label_for_cluster(
+        self,
+        cluster_df: pd.DataFrame,
+        label: int,
+        existing_labels: dict[int, str],
+    ) -> str:
+        """
+        Prefer the dominant source node name when we cannot derive an LLM label.
+
+        This keeps the dashboard understandable in offline/demo environments:
+        `classify_node`, `extract_node`, etc. are more useful than `cluster_3`.
+        If multiple clusters map to the same dominant node, suffix them so names
+        remain unique and stable.
+        """
+        if "node_name" in cluster_df and not cluster_df["node_name"].dropna().empty:
+            dominant_node = str(cluster_df["node_name"].mode().iloc[0]).strip()
+            if dominant_node:
+                same_name_count = sum(1 for value in existing_labels.values() if value == dominant_node)
+                if same_name_count == 0:
+                    return dominant_node
+                return f"{dominant_node}_{same_name_count + 1}"
+        return f"cluster_{label}"
+
     def _llm_label_clusters(
         self,
         df: pd.DataFrame,
@@ -294,7 +322,11 @@ Respond with ONLY the label. No explanation."""),
                 logger.info(f"Cluster {label} labelled: '{label_text}'")
             except Exception as e:
                 logger.warning(f"LLM labelling failed for cluster {label}: {e}")
-                cluster_labels[label] = f"cluster_{label}"
+                cluster_labels[label] = self._fallback_label_for_cluster(
+                    cluster_df,
+                    label,
+                    cluster_labels,
+                )
 
         return cluster_labels
 
@@ -323,7 +355,8 @@ Respond with ONLY the label. No explanation."""),
         cluster_labels = {}
         for label in unique_labels:
             mask = labels == label
-            all_prompts = " ".join(df[mask]["prompt"].tolist()).lower()
+            cluster_df = df[mask]
+            all_prompts = " ".join(cluster_df["prompt"].tolist()).lower()
 
             # Extract meaningful words
             words = re.findall(r'\b[a-z]{4,}\b', all_prompts)
@@ -332,7 +365,11 @@ Respond with ONLY the label. No explanation."""),
 
             # Take top 2-3 most distinctive words
             top_words = [w for w, _ in word_counts.most_common(3)]
-            label_text = "_".join(top_words[:2]) if top_words else f"cluster_{label}"
+            label_text = "_".join(top_words[:2]) if top_words else self._fallback_label_for_cluster(
+                cluster_df,
+                label,
+                cluster_labels,
+            )
             cluster_labels[label] = label_text
 
         return cluster_labels
