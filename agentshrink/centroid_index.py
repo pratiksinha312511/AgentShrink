@@ -32,10 +32,34 @@ import logging
 import pathlib
 import numpy as np
 import os
+import time
 from typing import Optional
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_saved_routing_blob(saved: dict) -> dict[int, dict]:
+    """
+    Accept either the wrapped dashboard format:
+      {"routing": {"11": {...}}}
+    or the raw internal format:
+      {"11": {...}}
+    and normalize to int-keyed internal routing config.
+    """
+    routing_blob = saved.get("routing", saved)
+    normalized: dict[int, dict] = {}
+    for cid_str, cfg in routing_blob.items():
+        cid = int(cid_str)
+        normalized[cid] = {
+            "model_name": cfg.get("model") or cfg.get("model_name", "fallback"),
+            "model_display": cfg.get("display") or cfg.get("model_display", cfg.get("model", "fallback")),
+            "is_local": cfg.get("local", cfg.get("is_local", False)),
+            "quality_score": cfg.get("quality_score", 0.0),
+            "needs_fine_tune": cfg.get("source") == "fine_tune_pending" or cfg.get("needs_fine_tune", False),
+            "source": cfg.get("source", "report"),
+        }
+    return normalized
 
 
 def _heuristic_routing_from_cluster(cluster_name: str, cluster_meta: dict) -> dict:
@@ -162,16 +186,7 @@ class CentroidIndex:
         if routing_config_path.exists():
             with open(routing_config_path, encoding="utf-8") as f:
                 saved = json.load(f)
-            routing_blob = saved.get("routing", saved)
-            for cid_str, cfg in routing_blob.items():
-                cid = int(cid_str)
-                routing_config[cid] = {
-                    "model_name": cfg.get("model") or cfg.get("model_name", "fallback"),
-                    "model_display": cfg.get("display") or cfg.get("model_display", cfg.get("model", "fallback")),
-                    "is_local": cfg.get("local", cfg.get("is_local", False)),
-                    "quality_score": cfg.get("quality_score", 0.0),
-                    "needs_fine_tune": cfg.get("source") == "fine_tune_pending" or cfg.get("needs_fine_tune", False),
-                }
+            routing_config = _normalize_saved_routing_blob(saved)
         elif report_path.exists():
             with open(report_path) as f:
                 report = json.load(f)
@@ -393,11 +408,29 @@ class CentroidIndex:
             self.routing_config[cluster_id]["model_display"] = display_name
             self.routing_config[cluster_id]["is_local"]      = True
             self.routing_config[cluster_id].pop("needs_fine_tune", None)
+            self.routing_config[cluster_id]["source"] = "fine_tuned"
 
             # Persist the update
             config_path = pathlib.Path(output_dir) / "routing_config.json"
-            with open(config_path, "w") as f:
-                json.dump(self.routing_config, f, indent=2)
+            serialized_routing = {
+                str(cid): {
+                    "name": self.cluster_names.get(cid, f"cluster_{cid}"),
+                    "model": cfg.get("model_name", "fallback"),
+                    "display": cfg.get("model_display", cfg.get("model_name", "fallback")),
+                    "local": cfg.get("is_local", False),
+                    "quality_score": cfg.get("quality_score", 0.0),
+                    "source": cfg.get("source", "report"),
+                    "needs_fine_tune": cfg.get("needs_fine_tune", False),
+                }
+                for cid, cfg in self.routing_config.items()
+            }
+            payload = {
+                "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "cluster_count": len(serialized_routing),
+                "routing": serialized_routing,
+            }
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
 
             logger.info(f"Fine-tuned model '{ollama_model_name}' registered for cluster {cluster_id}")
 

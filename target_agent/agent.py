@@ -68,6 +68,8 @@ def _target_agent_model(provider: str) -> str:
     """Pick the configured model name for the selected provider."""
     if provider in {"ollama", "shrink"}:
         return os.getenv("TARGET_AGENT_OLLAMA_MODEL", "llama3.2:3b")
+    if provider == "nvidia":
+        return os.getenv("TARGET_AGENT_NVIDIA_MODEL", "moonshotai/kimi-k2-instruct")
     if provider == "gemini":
         return os.getenv("TARGET_AGENT_GEMINI_MODEL", "gemini-2.0-flash-lite")
     return os.getenv("TARGET_AGENT_OPENAI_MODEL", "gpt-4o-mini")
@@ -109,10 +111,27 @@ def get_llm(callbacks=None):
         )
 
     if provider == "openai":
+        base_url = os.getenv("OPENAI_BASE_URL", None)
+        api_key = os.getenv("OPENAI_API_KEY", None)
+        kwargs = {}
+        if base_url:
+            kwargs["base_url"] = base_url
+        if api_key:
+            kwargs["api_key"] = api_key
         return ChatOpenAI(
             model=model,
             temperature=temperature,
             callbacks=callbacks,
+            **kwargs,
+        )
+
+    if provider == "nvidia":
+        return ChatOpenAI(
+            model=model,
+            temperature=temperature,
+            callbacks=callbacks,
+            base_url=os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
+            api_key=os.getenv("NVIDIA_API_KEY"),
         )
 
     if provider == "gemini":
@@ -127,7 +146,7 @@ def get_llm(callbacks=None):
 
     raise ValueError(
         f"Unsupported TARGET_AGENT_PROVIDER='{provider}'. "
-        "Use 'openai', 'gemini', 'ollama', or 'shrink'."
+        "Use 'openai', 'nvidia', 'gemini', 'ollama', or 'shrink'."
     )
 
 

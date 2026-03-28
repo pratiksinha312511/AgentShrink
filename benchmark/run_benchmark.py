@@ -143,6 +143,7 @@ def benchmark_after(n_runs: int, trace: bool) -> dict:
     fallback_model = os.getenv(
         "SHRINKLLM_FALLBACK_MODEL",
         os.getenv("TARGET_AGENT_GEMINI_MODEL", "gemini-2.0-flash-lite") if fallback_provider == "gemini"
+        else os.getenv("TARGET_AGENT_NVIDIA_MODEL", "moonshotai/kimi-k2-instruct") if fallback_provider == "nvidia"
         else os.getenv("TARGET_AGENT_OPENAI_MODEL", "gpt-4o-mini")
     )
 

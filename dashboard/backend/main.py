@@ -60,6 +60,14 @@ def _load_cluster_info() -> dict | None:
         return json.load(f)
 
 
+def _load_existing_routing_config() -> dict:
+    path = OUTPUT_DIR / "routing_config.json"
+    if not path.exists():
+        return {}
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
 def _estimate_tokens_from_text(text: str) -> int:
     """
     Lightweight token estimate for local-only logs where providers do not
@@ -482,10 +490,26 @@ async def apply_report():
         report = _heuristic_report_from_clusters(cluster_info)
 
     local_model = os.getenv("TARGET_AGENT_OLLAMA_MODEL", "llama3.2:3b")
+    existing = _load_existing_routing_config()
+    existing_routing = existing.get("routing", existing)
     routing = {}
     for cluster in report.get("clusters", []):
         rec = cluster.get("recommendation")
         cid = str(cluster["cluster_id"])
+        existing_cfg = existing_routing.get(cid, {})
+
+        # Preserve previously registered fine-tuned routes across report refreshes.
+        if existing_cfg.get("source") == "fine_tuned" and existing_cfg.get("model"):
+            routing[cid] = {
+                "name": cluster["cluster_name"],
+                "model": existing_cfg.get("model"),
+                "display": existing_cfg.get("display") or existing_cfg.get("model"),
+                "local": True,
+                "source": "fine_tuned",
+                "quality_score": existing_cfg.get("quality_score", cluster.get("best_score", 0.0)),
+            }
+            continue
+
         if rec == "replace_now":
             routing[cid] = {
                 "name": cluster["cluster_name"],
@@ -493,6 +517,7 @@ async def apply_report():
                 "display": cluster.get("best_slm_display") or f"Local ({local_model})",
                 "local": True,
                 "source": "report",
+                "quality_score": cluster.get("best_score", 0.0),
             }
         elif rec == "fine_tune":
             routing[cid] = {
@@ -501,6 +526,7 @@ async def apply_report():
                 "display": f"{cluster.get('fine_tune_base_model') or local_model} (fine-tune candidate)",
                 "local": False,
                 "source": "fine_tune_pending",
+                "quality_score": cluster.get("best_score", 0.0),
             }
         else:
             routing[cid] = {
@@ -509,6 +535,7 @@ async def apply_report():
                 "display": "Fallback (kept on strong model)",
                 "local": False,
                 "source": "report",
+                "quality_score": cluster.get("best_score", 0.0),
             }
 
     config_payload = {

@@ -122,6 +122,7 @@ CREATE INDEX IF NOT EXISTS idx_timestamp    ON llm_calls(timestamp);
 # GPT token prices as of 2025 (USD per 1000 tokens)
 # Used to calculate cost savings when we replace calls with free local SLMs
 TOKEN_PRICES = {
+    "moonshotai/kimi-k2-instruct": {"in": 0.00014, "out": 0.00056},
     "gpt-4o":           {"in": 0.0025, "out": 0.010},
     "gpt-4o-mini":      {"in": 0.00015, "out": 0.0006},
     "gpt-4-turbo":      {"in": 0.010,  "out": 0.030},
@@ -133,9 +134,28 @@ TOKEN_PRICES = {
 }
 
 
+def _custom_token_prices(model: str) -> Optional[dict]:
+    """
+    Optional override for providers/models whose prices we don't want to hardcode.
+    Set AGENTSHRINK_PRICE_MODEL plus AGENTSHRINK_PRICE_IN/OUT_PER_1K to use it.
+    """
+    override_model = os.getenv("AGENTSHRINK_PRICE_MODEL", "").strip()
+    override_in = os.getenv("AGENTSHRINK_PRICE_IN_PER_1K", "").strip()
+    override_out = os.getenv("AGENTSHRINK_PRICE_OUT_PER_1K", "").strip()
+    if not (override_model and override_in and override_out):
+        return None
+    if model != override_model:
+        return None
+    try:
+        return {"in": float(override_in), "out": float(override_out)}
+    except ValueError:
+        logger.warning("Invalid AGENTSHRINK custom price override; ignoring it.")
+        return None
+
+
 def _estimate_cost(model: str, tokens_in: int, tokens_out: int) -> float:
     """Estimate the USD cost of a single LLM call."""
-    prices = TOKEN_PRICES.get(model, {"in": 0.001, "out": 0.002})
+    prices = _custom_token_prices(model) or TOKEN_PRICES.get(model, {"in": 0.001, "out": 0.002})
     cost = (tokens_in / 1000 * prices["in"]) + (tokens_out / 1000 * prices["out"])
     return round(cost, 6)
 

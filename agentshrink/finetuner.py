@@ -169,6 +169,7 @@ class FineTuner:
         model = base_model or self.config.base_model
         cfg   = self.config
         hf_repo = f"{hf_username}/agentshrink-cluster-{cluster_id}-{cluster_name}"
+        recommended_ollama_name = f"agentshrink-{cluster_name.replace('_', '-')}-ft"
 
         # Read dataset to show stats in notebook
         try:
@@ -325,20 +326,38 @@ model.save_pretrained_gguf(
 print("Adapter saved as GGUF (Q4_K_M quantization)")
 print("File: agentshrink_cluster_{cluster_id}_{cluster_name}-unsloth.Q4_K_M.gguf")"""),
 
-            self._nb_code(f"""# Step 7: Download the adapter
+            self._nb_code(f"""# Step 7: Download the GGUF model and Modelfile for local Ollama import
 from google.colab import files
-import glob
+import os
 
-gguf_files = glob.glob("agentshrink_cluster_{cluster_id}_{cluster_name}*.gguf")
-if gguf_files:
-    files.download(gguf_files[0])
-    print(f"Downloaded: {{gguf_files[0]}}")
-    print()
-    print("Next steps (on your local machine):")
-    print(f"  1. ollama create agentshrink-cluster-{cluster_id} -f ./Modelfile")
-    print(f"  2. agentshrink register-model --cluster-id {cluster_id} --model agentshrink-cluster-{cluster_id}")
+gguf_dir = "agentshrink_cluster_{cluster_id}_{cluster_name}_gguf"
+gguf_file = os.path.join(gguf_dir, "qwen2.5-3b-instruct.Q4_K_M.gguf")
+modelfile = os.path.join(gguf_dir, "Modelfile")
+
+print("Checking generated files...")
+print("GGUF exists:", os.path.exists(gguf_file))
+print("Modelfile exists:", os.path.exists(modelfile))
+
+if os.path.exists(gguf_file):
+    files.download(gguf_file)
 else:
-    print("No GGUF file found — check training output above")"""),
+    raise FileNotFoundError(f"Missing GGUF file: {{gguf_file}}")
+
+if os.path.exists(modelfile):
+    files.download(modelfile)
+else:
+    raise FileNotFoundError(f"Missing Modelfile: {{modelfile}}")
+
+print()
+print("Next steps on your local machine:")
+print("1. Put the downloaded GGUF file and Modelfile into the same folder.")
+print("2. In that folder, run:")
+print("   ollama create {recommended_ollama_name} -f Modelfile")
+print("3. Verify with:")
+print("   ollama list")
+print("4. Then register in AgentShrink:")
+print("   Ollama model name: {recommended_ollama_name}")
+print("   Display name: {cluster_name.replace('_', ' ').title()} FT")"""),
 
             self._nb_markdown(f"""## After downloading the adapter
 
@@ -352,12 +371,12 @@ ADAPTER ./agentshrink_cluster_{cluster_id}_{cluster_name}-unsloth.Q4_K_M.gguf
 EOF
 
 # 2. Create the Ollama model
-ollama create agentshrink-cluster-{cluster_id} -f ./Modelfile
+ollama create {recommended_ollama_name} -f ./Modelfile
 
 # 3. Register in AgentShrink routing config
 agentshrink register-model \\
   --cluster-id {cluster_id} \\
-  --model agentshrink-cluster-{cluster_id}
+  --model {recommended_ollama_name}
 ```
 
 The router will now use your fine-tuned model for cluster `{cluster_name}`."""),

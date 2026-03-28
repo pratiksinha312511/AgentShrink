@@ -76,6 +76,15 @@ export default function OverviewPage() {
 
   const phase = phaseLabel()
 
+  const formatMoney = (value: number | undefined, opts?: { maxDecimals?: number }) => {
+    const amount = value ?? 0
+    const maxDecimals = opts?.maxDecimals ?? 4
+    if (amount === 0) return '$0.0000'
+    if (amount >= 0.01) return `$${amount.toFixed(4)}`
+    if (amount >= 0.0001) return `$${amount.toFixed(Math.max(maxDecimals, 5))}`
+    return `$${amount.toExponential(2)}`
+  }
+
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 300 }}>
       <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>Loading...</div>
@@ -132,7 +141,7 @@ export default function OverviewPage() {
             If these calls had all gone to <span style={{ fontFamily: 'monospace' }}>{status.estimated_baseline_model ?? 'gpt-4o-mini'}</span>,
             you would have spent about <strong style={{ color: 'var(--text-primary)' }}> ${status.estimated_baseline_cost_usd?.toFixed(4) ?? '0.0000'}</strong>.
             Based on the models used in your logs, AgentShrink avoided about
-            <strong style={{ color: '#1D9E75' }}> ${status.estimated_savings_usd?.toFixed(4) ?? '0.0000'}</strong>
+            <strong style={{ color: '#1D9E75' }}> {formatMoney(status.estimated_savings_usd)}</strong>
             {' '}({status.estimated_savings_pct?.toFixed(1) ?? '0.0'}%).
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>
@@ -147,7 +156,7 @@ export default function OverviewPage() {
           { label: 'LLM calls captured', value: status?.total_calls?.toLocaleString() ?? '0', change: 'total' },
           { label: 'Agent runs',         value: status?.total_runs?.toLocaleString() ?? '0', change: 'unique' },
           { label: 'Total tokens',       value: status?.total_tokens ? (status.total_tokens / 1000).toFixed(1) + 'K' : '0', change: 'used' },
-          { label: 'Spend avoided',      value: `$${status?.estimated_savings_usd?.toFixed(4) ?? '0.0000'}`, change: `vs ${status?.estimated_baseline_model ?? 'gpt-4o-mini'}` },
+          { label: 'Spend avoided',      value: formatMoney(status?.estimated_savings_usd), change: `vs ${status?.estimated_baseline_model ?? 'gpt-4o-mini'}` },
         ].map(m => (
           <div className="metric-card" key={m.label}>
             <div className="metric-num">{m.value}</div>
@@ -161,7 +170,7 @@ export default function OverviewPage() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 24 }}>
           <div className="metric-card" style={{ alignItems: 'flex-start' }}>
             <div className="metric-num" style={{ color: 'var(--text-primary)' }}>
-              ${status?.estimated_baseline_cost_usd?.toFixed(4) ?? '0.0000'}
+              {formatMoney(status?.estimated_baseline_cost_usd)}
             </div>
             <div className="metric-label">Estimated cloud cost</div>
             <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 3 }}>
@@ -170,7 +179,7 @@ export default function OverviewPage() {
           </div>
           <div className="metric-card" style={{ alignItems: 'flex-start' }}>
             <div className="metric-num" style={{ color: '#7F77DD' }}>
-              ${status?.total_cost_usd?.toFixed(4) ?? '0.0000'}
+              {formatMoney(status?.total_cost_usd)}
             </div>
             <div className="metric-label">Observed spend in logs</div>
             <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 3 }}>
@@ -236,7 +245,12 @@ export default function OverviewPage() {
                   <td style={{ padding: '9px 14px', fontWeight: 500, color: 'var(--text-primary)' }}>{node.node_name}</td>
                   <td style={{ padding: '9px 14px', color: 'var(--text-secondary)' }}>{node.count}</td>
                   <td style={{ padding: '9px 14px', color: 'var(--text-secondary)' }}>{Math.round(node.avg_latency)}ms</td>
-                  <td style={{ padding: '9px 14px', color: 'var(--text-secondary)' }}>${(node.avg_cost || 0).toFixed(5)}</td>
+                  <td
+                    style={{ padding: '9px 14px', color: 'var(--text-secondary)' }}
+                    title={`Exact avg cost: $${(node.avg_cost || 0).toFixed(8)}`}
+                  >
+                    {formatMoney(node.avg_cost, { maxDecimals: 6 })}
+                  </td>
                   <td style={{ padding: '9px 14px' }}>
                     {status.node_statuses?.[node.node_name] ? (
                       <span

@@ -192,11 +192,27 @@ class ShrinkLLM(BaseChatModel):
                     temperature=self.temperature,
                     google_api_key=os.getenv("GOOGLE_API_KEY"),
                 )
-            else:
+            elif self.fallback_provider == "nvidia":
                 from langchain_openai import ChatOpenAI
                 self._fallback_llm = ChatOpenAI(
                     model=self.fallback_model,
                     temperature=self.temperature,
+                    base_url=os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
+                    api_key=os.getenv("NVIDIA_API_KEY"),
+                )
+            else:
+                from langchain_openai import ChatOpenAI
+                base_url = os.getenv("OPENAI_BASE_URL", None)
+                api_key = os.getenv("OPENAI_API_KEY", None)
+                kwargs = {}
+                if base_url:
+                    kwargs["base_url"] = base_url
+                if api_key:
+                    kwargs["api_key"] = api_key
+                self._fallback_llm = ChatOpenAI(
+                    model=self.fallback_model,
+                    temperature=self.temperature,
+                    **kwargs,
                 )
         except Exception as e:
             logger.error(f"Failed to set up fallback LLM: {e}")
