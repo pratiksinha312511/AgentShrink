@@ -27,6 +27,7 @@ import pathlib
 import sqlite3
 import logging
 import os
+from collections import deque
 from typing import Optional
 from contextlib import asynccontextmanager
 from contextlib import suppress
@@ -51,6 +52,21 @@ import sys
 sys.path.insert(0, SYS_PATH_ROOT)
 
 from agentshrink.logger import _estimate_cost
+from agentshrink.model_catalog import (
+    choose_best_model,
+    cluster_task_kind,
+    delete_model,
+    load_model_catalog,
+    save_model_catalog,
+    upsert_model,
+)
+from agentshrink.project_config import (
+    get_eval_samples_per_cluster,
+    get_judge_min_interval_s,
+    get_judge_model_id,
+    get_remote_min_interval_s,
+    save_project_config,
+)
 
 
 def _load_cluster_info() -> dict | None:
@@ -102,35 +118,34 @@ def _heuristic_report_from_clusters(cluster_info: dict | None) -> dict:
     if not cluster_info:
         raise HTTPException(status_code=404, detail="No cluster data found. Run analysis first.")
 
-    local_model = os.getenv("TARGET_AGENT_OLLAMA_MODEL", "llama3.2:3b")
+    catalog = load_model_catalog(OUTPUT_DIR)
+    fallback_provider = os.getenv("TARGET_AGENT_PROVIDER", "openai").strip().lower()
     clusters = []
     for cid, info in cluster_info.get("clusters", {}).items():
         node_dist = info.get("node_distribution", {}) or {}
-        dominant = max(node_dist.items(), key=lambda kv: kv[1])[0].lower() if node_dist else ""
-        recommendation = "fine_tune"
-        best_slm = local_model
-        best_slm_display = f"Local ({local_model})"
-        best_score = 0.72
-        needs_fine_tuning = True
-        fine_tune_base_model = local_model
+        task_kind = cluster_task_kind(info)
+        chosen_model = choose_best_model(info, catalog)
+        best_score = 0.92 if task_kind == "simple" else (0.82 if task_kind == "general" else 0.72)
+        recommendation = "keep_llm"
+        best_slm = None
+        best_slm_display = None
+        best_provider = fallback_provider
+        needs_fine_tuning = False
+        fine_tune_base_model = None
 
-        if any(k in dominant for k in ("classify", "extract", "format")):
-            recommendation = "replace_now"
-            best_score = 0.92
-            needs_fine_tuning = False
-            fine_tune_base_model = None
-        elif "draft_reply" in dominant:
-            recommendation = "keep_llm"
-            best_score = 0.58
-            best_slm = None
-            best_slm_display = None
-            needs_fine_tuning = False
-            fine_tune_base_model = None
-        elif "check_policy" in dominant:
-            recommendation = "fine_tune"
-            best_score = 0.74
-            needs_fine_tuning = True
-            fine_tune_base_model = local_model
+        if chosen_model:
+            best_slm = chosen_model["model_name"]
+            best_slm_display = chosen_model["display_name"]
+            best_provider = chosen_model["provider"]
+            if task_kind == "simple":
+                recommendation = "replace_now"
+                needs_fine_tuning = False
+            elif chosen_model.get("local"):
+                recommendation = "fine_tune"
+                needs_fine_tuning = True
+                fine_tune_base_model = chosen_model["model_name"]
+            else:
+                recommendation = "keep_llm" if int(chosen_model.get("quality_tier", 0)) < 4 else "replace_now"
 
         clusters.append({
             "cluster_id": int(cid),
@@ -139,6 +154,7 @@ def _heuristic_report_from_clusters(cluster_info: dict | None) -> dict:
             "recommendation": recommendation,
             "best_slm": best_slm,
             "best_slm_display": best_slm_display,
+            "best_provider": best_provider,
             "best_score": best_score,
             "needs_fine_tuning": needs_fine_tuning,
             "fine_tune_base_model": fine_tune_base_model,
@@ -147,6 +163,7 @@ def _heuristic_report_from_clusters(cluster_info: dict | None) -> dict:
             "evaluations": [{
                 "slm_name": best_slm or "fallback",
                 "slm_display": best_slm_display or "Fallback",
+                "provider": best_provider,
                 "correctness_score": best_score,
                 "format_score": best_score,
                 "completeness_score": max(best_score - 0.05, 0.0),
@@ -177,7 +194,7 @@ def _heuristic_report_from_clusters(cluster_info: dict | None) -> dict:
             "keep_llm_count": len(keep_llm),
             "pct_calls_replaceable_now": round(sum(c["cluster_size"] for c in replace_now) / total_calls * 100, 1),
             "pct_calls_replaceable_with_finetune": round((sum(c["cluster_size"] for c in replace_now) + sum(c["cluster_size"] for c in fine_tune)) / total_calls * 100, 1),
-            "models_evaluated": [local_model],
+            "models_evaluated": [model["model_name"] for model in catalog.get("models", []) if model.get("enabled")],
         },
         "clusters": clusters,
     }
@@ -189,6 +206,41 @@ def _load_clustered_df():
         raise HTTPException(status_code=404, detail="No clustered dataframe found. Run analysis first.")
     import pandas as pd
     return pd.read_parquet(clustered_df_path)
+
+
+def _load_saved_cluster_snapshot() -> dict:
+    cluster_info_payload = _load_cluster_info()
+    if not cluster_info_payload:
+        raise HTTPException(status_code=404, detail="No saved cluster snapshot found. Run analysis first.")
+
+    clustered_df = _load_clustered_df()
+    cluster_info = {
+        int(cid): info
+        for cid, info in (cluster_info_payload.get("clusters") or {}).items()
+    }
+
+    centroids = {}
+    centroids_path = OUTPUT_DIR / "centroids.npy"
+    centroid_ids = [int(cid) for cid in cluster_info_payload.get("centroid_ids", [])]
+    if centroids_path.exists() and centroid_ids:
+        centroid_array = np.load(centroids_path)
+        for idx, cid in enumerate(centroid_ids):
+            if idx < len(centroid_array):
+                centroids[int(cid)] = centroid_array[idx]
+
+    return {
+        "df": clustered_df,
+        "embeddings": np.empty((0, 0), dtype=np.float32),
+        "centroids": centroids,
+        "cluster_info": cluster_info,
+    }
+
+
+def _targeted_report_filename(cluster_ids: list[int]) -> str:
+    if len(cluster_ids) == 1:
+        return f"replaceability_report_cluster_{cluster_ids[0]}.json"
+    joined = "_".join(str(cid) for cid in cluster_ids)
+    return f"replaceability_report_clusters_{joined}.json"
 
 
 # ─────────────────────────────────────────────
@@ -229,6 +281,19 @@ manager = ConnectionManager()
 # Global routing event queue — ShrinkLLM pushes events here,
 # WebSocket handler reads and broadcasts them
 routing_event_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+analysis_log_buffer: deque[dict] = deque(maxlen=400)
+analysis_running: bool = False
+
+
+def _record_analysis_log(line: str, stream: str = "stdout"):
+    entry = {
+        "type": "analysis_log",
+        "line": line.rstrip("\n"),
+        "stream": stream,
+        "timestamp": time.time(),
+    }
+    analysis_log_buffer.append(entry)
+    return entry
 
 
 # ─────────────────────────────────────────────
@@ -444,14 +509,20 @@ async def get_clusters():
 
 
 @app.get("/api/report")
-async def get_report():
+async def get_report(cluster_id: int | None = None):
     """
     GET /api/report
     Returns the full Replaceability Report.
     """
-    report_path = OUTPUT_DIR / "replaceability_report.json"
+    report_path = (
+        OUTPUT_DIR / f"replaceability_report_cluster_{cluster_id}.json"
+        if cluster_id is not None else
+        OUTPUT_DIR / "replaceability_report.json"
+    )
 
     if not report_path.exists():
+        if cluster_id is not None:
+            raise HTTPException(status_code=404, detail=f"No targeted report found yet for cluster {cluster_id}.")
         return _heuristic_report_from_clusters(_load_cluster_info())
 
     with open(report_path) as f:
@@ -464,6 +535,7 @@ async def get_report():
 async def get_config():
     cluster_info = _load_cluster_info()
     report_path = OUTPUT_DIR / "replaceability_report.json"
+    model_catalog = load_model_catalog(OUTPUT_DIR)
     return {
         "db_path": str(DB_PATH),
         "output_dir": str(OUTPUT_DIR),
@@ -473,10 +545,22 @@ async def get_config():
         "target_agent_openai_model": os.getenv("TARGET_AGENT_OPENAI_MODEL", "gpt-4o-mini"),
         "quality_threshold": os.getenv("AGENTSHRINK_QUALITY_THRESHOLD", "0.85"),
         "confidence_threshold": os.getenv("AGENTSHRINK_CONFIDENCE_THRESHOLD", "0.75"),
+        "eval_samples_per_cluster": str(get_eval_samples_per_cluster()),
+        "remote_min_interval_s": str(get_remote_min_interval_s()),
+        "judge_min_interval_s": str(get_judge_min_interval_s()),
         "cluster_count": cluster_info.get("n_clusters", 0) if cluster_info else 0,
+        "model_count": len(model_catalog.get("models", [])),
         "report_exists": report_path.exists(),
         "analysis_exists": cluster_info is not None,
         "heuristic_report": not report_path.exists() and cluster_info is not None,
+    }
+
+
+@app.get("/api/analysis/logs")
+async def get_analysis_logs():
+    return {
+        "running": analysis_running,
+        "lines": list(analysis_log_buffer),
     }
 
 
@@ -494,7 +578,7 @@ async def apply_report():
     else:
         report = _heuristic_report_from_clusters(cluster_info)
 
-    local_model = os.getenv("TARGET_AGENT_OLLAMA_MODEL", "llama3.2:3b")
+    catalog = load_model_catalog(OUTPUT_DIR)
     existing = _load_existing_routing_config()
     existing_routing = existing.get("routing", existing)
     routing = {}
@@ -507,6 +591,7 @@ async def apply_report():
         if existing_cfg.get("source") == "fine_tuned" and existing_cfg.get("model"):
             routing[cid] = {
                 "name": cluster["cluster_name"],
+                "provider": existing_cfg.get("provider", "ollama"),
                 "model": existing_cfg.get("model"),
                 "display": existing_cfg.get("display") or existing_cfg.get("model"),
                 "local": True,
@@ -515,20 +600,53 @@ async def apply_report():
             }
             continue
 
+        evaluated_candidates = cluster.get("evaluations", []) or []
+        if rec in {"replace_now", "fine_tune"} and evaluated_candidates:
+            top_candidate = next(
+                (
+                    ev for ev in evaluated_candidates
+                    if ev.get("provider") == cluster.get("best_provider")
+                    and ev.get("slm_name") == cluster.get("best_slm")
+                ),
+                None,
+            )
+            if top_candidate is None:
+                top_candidate = sorted(
+                    evaluated_candidates,
+                    key=lambda ev: (
+                        -float(ev.get("selection_score", 0.0)),
+                        -float(ev.get("composite_score", 0.0)),
+                        float(ev.get("cost_in_per_1k", 0.0)) + float(ev.get("cost_out_per_1k", 0.0)),
+                    ),
+                )[0]
+            routing[cid] = {
+                "name": cluster["cluster_name"],
+                "provider": top_candidate.get("provider", cluster.get("best_provider", "ollama")),
+                "model": top_candidate.get("slm_name") or cluster.get("best_slm") or "fallback",
+                "display": top_candidate.get("slm_display") or cluster.get("best_slm_display") or "Fallback",
+                "local": bool(top_candidate.get("local", False)),
+                "source": "report",
+                "quality_score": top_candidate.get("composite_score", cluster.get("best_score", 0.0)),
+                "selection_score": top_candidate.get("selection_score", 0.0),
+            }
+            continue
+
         if rec == "replace_now":
             routing[cid] = {
                 "name": cluster["cluster_name"],
-                "model": cluster.get("best_slm") or local_model,
-                "display": cluster.get("best_slm_display") or f"Local ({local_model})",
-                "local": True,
+                "provider": cluster.get("best_provider", "ollama"),
+                "model": cluster.get("best_slm") or "fallback",
+                "display": cluster.get("best_slm_display") or cluster.get("best_slm") or "Fallback",
+                "local": cluster.get("best_provider") == "ollama",
                 "source": "report",
                 "quality_score": cluster.get("best_score", 0.0),
             }
         elif rec == "fine_tune":
             routing[cid] = {
                 "name": cluster["cluster_name"],
-                "model": cluster.get("fine_tune_base_model") or local_model,
-                "display": f"{cluster.get('fine_tune_base_model') or local_model} (fine-tune candidate)",
+                "provider": "ollama",
+                "model": cluster.get("fine_tune_base_model") or os.getenv("TARGET_AGENT_OLLAMA_MODEL", "llama3.2:3b"),
+                "display": f"{cluster.get('fine_tune_base_model') or os.getenv('TARGET_AGENT_OLLAMA_MODEL', 'llama3.2:3b')} (fine-tune candidate)",
                 "local": False,
                 "source": "fine_tune_pending",
                 "quality_score": cluster.get("best_score", 0.0),
@@ -536,6 +654,7 @@ async def apply_report():
         else:
             routing[cid] = {
                 "name": cluster["cluster_name"],
+                "provider": os.getenv("TARGET_AGENT_PROVIDER", "openai"),
                 "model": "fallback",
                 "display": "Fallback (kept on strong model)",
                 "local": False,
@@ -594,6 +713,7 @@ class AnalyseRequest(BaseModel):
     min_cluster_size: int = 5
     skip_eval:        bool = False
     no_llm_labels:    bool = False
+    cluster_ids:      list[int] = []
 
 
 class ExportFineTuneRequest(BaseModel):
@@ -604,6 +724,25 @@ class RegisterFineTuneRequest(BaseModel):
     cluster_id: int
     ollama_name: str
     display_name: str
+
+
+class ModelConfigRequest(BaseModel):
+    id: Optional[str] = None
+    provider: str
+    model_name: str
+    display_name: str
+    enabled: bool = True
+    candidate_enabled: bool = True
+    judge_eligible: bool = True
+    local: bool = False
+    supports: list[str] = ["general"]
+    quality_tier: int = 3
+    cost_in_per_1k: float = 0.0
+    cost_out_per_1k: float = 0.0
+
+
+class JudgeModelRequest(BaseModel):
+    model_id: Optional[str] = None
 
 
 def _ollama_model_names() -> list[str]:
@@ -624,6 +763,43 @@ def _ollama_model_names() -> list[str]:
         return []
 
 
+@app.get("/api/models")
+async def get_models():
+    catalog = load_model_catalog(OUTPUT_DIR)
+    return {
+        "models": catalog.get("models", []),
+        "judge_model_id": get_judge_model_id(),
+        "available_providers": ["ollama", "openai", "nvidia", "gemini", "anthropic"],
+        "ollama_models": _ollama_model_names(),
+    }
+
+
+@app.post("/api/models")
+async def save_model(req: ModelConfigRequest):
+    catalog = upsert_model(OUTPUT_DIR, req.model_dump())
+    return {"status": "ok", "models": catalog.get("models", [])}
+
+
+@app.delete("/api/models/{model_id}")
+async def remove_model(model_id: str):
+    catalog = delete_model(OUTPUT_DIR, model_id)
+    return {"status": "ok", "models": catalog.get("models", [])}
+
+
+@app.post("/api/models/judge")
+async def set_judge_model(req: JudgeModelRequest):
+    model_id = req.model_id
+    if model_id:
+        catalog = load_model_catalog(OUTPUT_DIR)
+        selected = next((model for model in catalog.get("models", []) if model.get("id") == model_id), None)
+        if not selected:
+            raise HTTPException(status_code=404, detail="Judge model not found in model catalog.")
+        if not selected.get("judge_eligible", True):
+            raise HTTPException(status_code=400, detail="Selected model is not marked as judge-eligible.")
+    config = save_project_config({"judge_model_id": model_id})
+    return {"status": "ok", "judge_model_id": config.get("judge_model_id")}
+
+
 @app.post("/api/analyse")
 async def trigger_analyse(req: AnalyseRequest, background_tasks: BackgroundTasks):
     """
@@ -631,16 +807,89 @@ async def trigger_analyse(req: AnalyseRequest, background_tasks: BackgroundTasks
     Triggers the full analysis pipeline in a background task.
     Progress is streamed via the /ws/routing-trace WebSocket.
     """
+    use_saved_snapshot = bool(req.cluster_ids) and not req.skip_eval and (OUTPUT_DIR / "cluster_info.json").exists()
+
     async def run_analysis():
-        await routing_event_queue.put({
-            "type": "analysis_progress",
-            "step": 1, "total_steps": 4,
-            "message": "Curating captured logs...",
-            "timestamp": time.time(),
-        })
+        global analysis_running
+        analysis_running = True
+        analysis_log_buffer.clear()
 
         try:
-            import subprocess
+            if use_saved_snapshot:
+                await routing_event_queue.put({
+                    "type": "analysis_progress",
+                    "step": 1, "total_steps": 2,
+                    "message": "Loading saved clustering snapshot...",
+                    "timestamp": time.time(),
+                })
+                await routing_event_queue.put(_record_analysis_log(
+                    f"Using saved cluster snapshot from {OUTPUT_DIR}",
+                    stream="meta",
+                ))
+
+                from agentshrink.evaluator import EvaluatorConfig, SLMEvaluator
+
+                previous_output_dir = os.environ.get("AGENTSHRINK_OUTPUT_DIR")
+                os.environ["AGENTSHRINK_OUTPUT_DIR"] = str(OUTPUT_DIR)
+                try:
+                    cluster_result = await asyncio.to_thread(_load_saved_cluster_snapshot)
+                    evaluator = SLMEvaluator(
+                        config=EvaluatorConfig(
+                            n_samples_per_cluster=get_eval_samples_per_cluster(),
+                            remote_min_interval_s=get_remote_min_interval_s(),
+                            judge_min_interval_s=get_judge_min_interval_s(),
+                            verbose=True,
+                        )
+                    )
+
+                    await routing_event_queue.put({
+                        "type": "analysis_progress",
+                        "step": 2, "total_steps": 2,
+                        "message": f"Evaluating saved cluster snapshot for cluster_id(s): {', '.join(str(cid) for cid in req.cluster_ids)}",
+                        "timestamp": time.time(),
+                    })
+                    await routing_event_queue.put(_record_analysis_log(
+                        f"Evaluating cluster_id(s) {', '.join(str(cid) for cid in req.cluster_ids)} from saved snapshot without reclustering",
+                        stream="meta",
+                    ))
+
+                    reports = await asyncio.to_thread(
+                        evaluator.evaluate_all_clusters,
+                        cluster_result,
+                        True,
+                        list(req.cluster_ids),
+                    )
+                    report_path = await asyncio.to_thread(
+                        evaluator.save_report,
+                        reports,
+                        OUTPUT_DIR,
+                        _targeted_report_filename(list(req.cluster_ids)),
+                    )
+                    await asyncio.to_thread(evaluator.print_report, reports)
+                finally:
+                    if previous_output_dir is None:
+                        os.environ.pop("AGENTSHRINK_OUTPUT_DIR", None)
+                    else:
+                        os.environ["AGENTSHRINK_OUTPUT_DIR"] = previous_output_dir
+
+                await routing_event_queue.put(_record_analysis_log(
+                    f"Saved targeted report to {report_path}",
+                    stream="meta",
+                ))
+                await routing_event_queue.put({
+                    "type": "analysis_complete",
+                    "message": "Targeted evaluation complete from saved cluster snapshot!",
+                    "timestamp": time.time(),
+                })
+                return
+
+            await routing_event_queue.put({
+                "type": "analysis_progress",
+                "step": 1, "total_steps": 4,
+                "message": "Curating captured logs...",
+                "timestamp": time.time(),
+            })
+
             cmd = [
                 sys.executable, "-m", "agentshrink.cli", "analyse",
                 f"--min-cluster-size={req.min_cluster_size}",
@@ -649,13 +898,40 @@ async def trigger_analyse(req: AnalyseRequest, background_tasks: BackgroundTasks
                 cmd.append("--skip-eval")
             if req.no_llm_labels:
                 cmd.append("--no-llm-labels")
+            for cluster_id in req.cluster_ids:
+                cmd.append(f"--cluster-id={cluster_id}")
 
-            result = subprocess.run(
-                cmd, capture_output=True, text=True,
-                cwd=str(PROJECT_ROOT)
+            await routing_event_queue.put(_record_analysis_log(
+                f"$ {' '.join(cmd)}",
+                stream="meta",
+            ))
+
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(PROJECT_ROOT),
             )
 
-            if result.returncode == 0:
+            async def _pump_stream(stream, stream_name: str):
+                while True:
+                    line = await stream.readline()
+                    if not line:
+                        break
+                    await routing_event_queue.put(
+                        _record_analysis_log(
+                            line.decode("utf-8", errors="replace"),
+                            stream=stream_name,
+                        )
+                    )
+
+            await asyncio.gather(
+                _pump_stream(process.stdout, "stdout"),
+                _pump_stream(process.stderr, "stderr"),
+            )
+            return_code = await process.wait()
+
+            if return_code == 0:
                 await routing_event_queue.put({
                     "type": "analysis_complete",
                     "message": "Analysis complete!",
@@ -664,7 +940,7 @@ async def trigger_analyse(req: AnalyseRequest, background_tasks: BackgroundTasks
             else:
                 await routing_event_queue.put({
                     "type": "analysis_error",
-                    "message": result.stderr[-500:] if result.stderr else "Analysis failed",
+                    "message": f"Analysis failed with exit code {return_code}",
                     "timestamp": time.time(),
                 })
         except Exception as e:
@@ -673,8 +949,15 @@ async def trigger_analyse(req: AnalyseRequest, background_tasks: BackgroundTasks
                 "message": str(e),
                 "timestamp": time.time(),
             })
+        finally:
+            analysis_running = False
 
     background_tasks.add_task(run_analysis)
+    if use_saved_snapshot:
+        return {
+            "status": "started",
+            "message": "Targeted evaluation started from the saved clustering snapshot",
+        }
     return {"status": "started", "message": "Analysis running in background"}
 
 
@@ -818,20 +1101,12 @@ async def websocket_routing_trace(ws: WebSocket):
         await ws.send_json({"type": "connected", "message": "Live routing feed connected"})
 
         while True:
-            try:
-                # Wait for event with timeout (to send heartbeats)
-                event = await asyncio.wait_for(
-                    routing_event_queue.get(),
-                    timeout=5.0
-                )
-                await manager.broadcast(event)
-            except asyncio.TimeoutError:
-                # Send heartbeat so frontend knows connection is alive
-                await ws.send_json({"type": "heartbeat", "timestamp": time.time()})
-            except asyncio.CancelledError:
-                break
+            await asyncio.sleep(5.0)
+            await ws.send_json({"type": "heartbeat", "timestamp": time.time()})
 
     except WebSocketDisconnect:
+        manager.disconnect(ws)
+    except asyncio.CancelledError:
         manager.disconnect(ws)
     except Exception as e:
         logger.error(f"WebSocket error: {e}")

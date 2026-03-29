@@ -1,0 +1,93 @@
+AgentShrink Current Issues
+==========================
+
+Issue 1: Hardcoded OpenAI usage in analysis
+Status: Fixed
+Notes:
+- Cluster labeling was hardcoded to OpenAI.
+- Judge scoring was hardcoded to OpenAI.
+- Both now use the configured analysis provider (currently NVIDIA).
+
+Issue 2: Evaluator counted only 1 enabled model
+Status: Fixed
+Notes:
+- Enabled models in models_catalog.json were correct.
+- Ollama availability detection was reading the response shape incorrectly.
+- Evaluator now recognizes installed Ollama models correctly.
+
+Issue 3: Ollama evaluator response parsing bug
+Status: Fixed
+Symptoms:
+- "Ollama generation failed for gemma3:1b: 'dict' object has no attribute 'response'"
+Notes:
+- The evaluator assumes one Ollama Python client response shape.
+- In the current environment, Ollama generate responses can come back as dict-like payloads.
+- The evaluator now supports both object-style and dict-style response parsing.
+
+Issue 4: Evaluation strategy is too expensive
+Status: In Progress
+Symptoms:
+- Full evaluation runs many sampled prompts per cluster across all enabled models.
+- Runtime can become slow as more models are added.
+Notes:
+- Current evaluation is prompt-sample based, not centroid-only.
+- We likely want representative sampling, staged evaluation, and caching.
+- Promising approach:
+  - sample a few prompts closest to the cluster centroid (canonical cases)
+  - sample a few prompts near the cluster edges/outliers (harder edge cases)
+  - evaluate on that mixed representative set instead of broader random sampling
+- Implemented:
+  - evaluator now uses representative sampling with centroid-near and edge-case prompts
+- Still open:
+  - staged evaluation (quick screen before full pass)
+  - caching/reuse of previous model-cluster evaluations
+
+Issue 5: Frontend analysis still defaults to heuristic mode
+Status: Fixed
+Symptoms:
+- Dashboard "Run Analysis" path still uses skip_eval/local-safe settings.
+- UI reports can remain heuristic unless full CLI analysis is run.
+Notes:
+- Overview "Run Analysis" now triggers full evaluator mode.
+- It no longer defaults to skip-eval / local-only heuristic analysis.
+
+Issue 6: Disabled models require report re-apply to fully affect routing
+Status: Open
+Symptoms:
+- Routing config is generated from evaluated/applied report state.
+- Disabling a model later does not automatically rewrite existing routing_config.json.
+Notes:
+- Runtime-side disabled-model validation may still be worth adding.
+
+Issue 7: Incumbent baseline bias should be made explicit in reports
+Status: Fixed
+Symptoms:
+- The incumbent strong model can appear as the "best replacement" in the report.
+- This is misleading when the goal is to replace the incumbent only if another model meets its quality bar.
+Notes:
+- Reports now track the incumbent baseline separately.
+- "Replace now" is only assigned when a non-incumbent model clears the quality threshold.
+- The report UI now shows the incumbent baseline explicitly alongside the recommended replacement.
+
+Issue 8: Cluster naming and incumbent baseline display are unstable/misleading across targeted reruns
+Status: Open
+Symptoms:
+- Cluster display names can change after rerunning analysis or targeted evaluation, even when the user expects cluster_id to remain the stable handle.
+- Targeted reevaluation should update scores for an existing cluster_id without regenerating or changing that cluster's stored display name.
+- The report can show the incumbent baseline model with a 0% quality score when that incumbent was not itself evaluated as a candidate.
+Notes:
+- cluster_id should be treated as the stable internal identifier within a clustering snapshot.
+- cluster_name should be persistent metadata associated with that cluster_id and reused from cluster_info.json during targeted reevaluation.
+- Full reclustering may produce a new clustering snapshot, but targeted report refreshes should not relabel existing cluster IDs.
+- The incumbent baseline card should show N/A or another explicit non-score state when the incumbent model is reference-only and was not evaluated.
+
+Issue 9: Targeted report generation is unnecessarily coupled to reclustering
+Status: Open
+Symptoms:
+- Generating a report for a single existing cluster still runs the full analyse pipeline, including curation and clustering.
+- Users cannot reevaluate/report one cluster from an existing clustering snapshot without recomputing clusters first.
+- This adds avoidable runtime and can also change cluster labels/metadata while the user only wanted refreshed evaluation for one cluster.
+Notes:
+- Clustering and evaluation/reporting should be separable stages.
+- Once cluster_info.json, saved assignments, and centroids exist for a snapshot, targeted cluster evaluation should load that snapshot and evaluate only the requested cluster_id.
+- cluster_id only needs reclustering when creating a new clustering snapshot, not when refreshing scores for an existing one.

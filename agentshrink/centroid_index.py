@@ -52,6 +52,7 @@ def _normalize_saved_routing_blob(saved: dict) -> dict[int, dict]:
     for cid_str, cfg in routing_blob.items():
         cid = int(cid_str)
         normalized[cid] = {
+            "provider": cfg.get("provider", "ollama" if cfg.get("local", cfg.get("is_local", False)) else "openai"),
             "model_name": cfg.get("model") or cfg.get("model_name", "fallback"),
             "model_display": cfg.get("display") or cfg.get("model_display", cfg.get("model", "fallback")),
             "is_local": cfg.get("local", cfg.get("is_local", False)),
@@ -71,6 +72,7 @@ def _heuristic_routing_from_cluster(cluster_name: str, cluster_meta: dict) -> di
 
     if any(key in dominant for key in ("classify", "extract", "format")):
         return {
+            "provider": "ollama",
             "model_name": local_model,
             "model_display": f"Local ({local_model})",
             "is_local": True,
@@ -79,6 +81,7 @@ def _heuristic_routing_from_cluster(cluster_name: str, cluster_meta: dict) -> di
 
     if any(key in dominant for key in ("draft_reply", "check_policy")):
         return {
+            "provider": "openai",
             "model_name": "fallback",
             "model_display": "Fallback (kept on strong model)",
             "is_local": False,
@@ -86,6 +89,7 @@ def _heuristic_routing_from_cluster(cluster_name: str, cluster_meta: dict) -> di
         }
 
     return {
+        "provider": "ollama",
         "model_name": local_model,
         "model_display": f"Local ({local_model}) (heuristic)",
         "is_local": True,
@@ -102,6 +106,7 @@ class RoutingDecision:
     """
     cluster_id:     int           # -1 means "unknown, use fallback"
     cluster_name:   str           # Human-readable name ("classify_complaint")
+    provider:       str           # Provider id ("ollama", "openai", "nvidia", ...)
     model_name:     str           # Ollama model name ("gemma2:2b") or "fallback"
     model_display:  str           # Human-readable ("Gemma 2 2B" or "GPT-4o")
     confidence:     float         # Cosine similarity to nearest centroid (0-1)
@@ -197,9 +202,10 @@ class CentroidIndex:
 
                 if rec == "replace_now" and cluster_data.get("best_slm"):
                     routing_config[cid] = {
+                        "provider": cluster_data.get("best_provider", "ollama"),
                         "model_name":    cluster_data["best_slm"],
                         "model_display": cluster_data.get("best_slm_display", cluster_data["best_slm"]),
-                        "is_local":      True,
+                        "is_local":      cluster_data.get("best_provider", "ollama") == "ollama",
                         "quality_score": cluster_data.get("best_score", 0.0),
                     }
                 elif rec == "fine_tune" and cluster_data.get("fine_tune_base_model"):
@@ -207,6 +213,7 @@ class CentroidIndex:
                     # (will be populated in Phase 6)
                     adapter_name = f"agentshrink_{cluster_data['cluster_name']}_ft"
                     routing_config[cid] = {
+                        "provider": "ollama",
                         "model_name":    cluster_data.get("best_slm") or adapter_name,
                         "model_display": f"{cluster_data.get('best_slm_display', '')} (fine-tuned)",
                         "is_local":      True,
@@ -216,6 +223,7 @@ class CentroidIndex:
                 else:
                     # KEEP_LLM — no local routing for this cluster
                     routing_config[cid] = {
+                        "provider": "openai",
                         "model_name":    "fallback",
                         "model_display": "API (kept)",
                         "is_local":      False,
@@ -323,6 +331,7 @@ class CentroidIndex:
             return RoutingDecision(
                 cluster_id=best_cid,
                 cluster_name=cluster_name,
+                provider=config.get("provider", "openai"),
                 model_name=self.fallback_model,
                 model_display="API (cluster kept on LLM)",
                 confidence=best_sim,
@@ -338,6 +347,7 @@ class CentroidIndex:
             return RoutingDecision(
                 cluster_id=best_cid,
                 cluster_name=cluster_name,
+                provider=config.get("provider", "openai"),
                 model_name=self.fallback_model,
                 model_display="API (pending fine-tune)",
                 confidence=best_sim,
@@ -352,11 +362,12 @@ class CentroidIndex:
         return RoutingDecision(
             cluster_id=best_cid,
             cluster_name=cluster_name,
+            provider=config.get("provider", "ollama" if config.get("is_local") else "openai"),
             model_name=config["model_name"],
             model_display=config.get("model_display", config["model_name"]),
             confidence=best_sim,
-            is_local=True,
-            reason=f"cluster '{cluster_name}' routed to local SLM (confidence: {best_sim:.2f})",
+            is_local=config.get("is_local", False),
+            reason=f"cluster '{cluster_name}' routed to {config.get('provider', 'ollama')}:{config['model_name']} (confidence: {best_sim:.2f})",
             nearest_cluster_name=cluster_name,
             nearest_similarity=best_sim,
             threshold=self.confidence_threshold,
@@ -372,6 +383,7 @@ class CentroidIndex:
         return RoutingDecision(
             cluster_id=-1,
             cluster_name="unknown",
+            provider="openai",
             model_name=self.fallback_model,
             model_display="API (fallback)",
             confidence=0.0,
@@ -404,6 +416,7 @@ class CentroidIndex:
         Updates both the in-memory config and saves to disk.
         """
         if cluster_id in self.routing_config:
+            self.routing_config[cluster_id]["provider"]      = "ollama"
             self.routing_config[cluster_id]["model_name"]    = ollama_model_name
             self.routing_config[cluster_id]["model_display"] = display_name
             self.routing_config[cluster_id]["is_local"]      = True
@@ -415,6 +428,7 @@ class CentroidIndex:
             serialized_routing = {
                 str(cid): {
                     "name": self.cluster_names.get(cid, f"cluster_{cid}"),
+                    "provider": cfg.get("provider", "ollama"),
                     "model": cfg.get("model_name", "fallback"),
                     "display": cfg.get("model_display", cfg.get("model_name", "fallback")),
                     "local": cfg.get("is_local", False),
@@ -459,6 +473,7 @@ class CentroidIndex:
             "routing": {
                 str(cid): {
                     "name":  self.cluster_names.get(cid, f"cluster_{cid}"),
+                    "provider": cfg.get("provider", "ollama"),
                     "model": cfg.get("model_name", "fallback"),
                     "local": cfg.get("is_local", False),
                 }

@@ -142,7 +142,7 @@ export default function RoutingPage() {
         </div>
         <div className="metric-card">
           <div className="metric-num" style={{ color: '#7F77DD' }}>{totals.api}</div>
-          <div className="metric-label">→ API fallback</div>
+          <div className="metric-label">→ Remote/API</div>
         </div>
         <div className="metric-card">
           <div className="metric-num" style={{ color: localPct >= 60 ? '#1D9E75' : '#EF9F27' }}>
@@ -168,7 +168,9 @@ export default function RoutingPage() {
                 }} />
                 <span style={{ color: 'var(--text-secondary)' }}>{cfg.name}</span>
                 <span style={{ color: 'var(--text-tertiary)' }}>→</span>
-                <code style={{ fontSize: 10, color: cfg.local ? '#1D9E75' : '#7F77DD' }}>{cfg.model}</code>
+                <code style={{ fontSize: 10, color: cfg.local ? '#1D9E75' : '#7F77DD' }}>
+                  {(cfg.provider ? `${cfg.provider}:` : '') + cfg.model}
+                </code>
               </div>
             ))}
           </div>

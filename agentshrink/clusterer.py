@@ -43,6 +43,13 @@ import pandas as pd
 from typing import Optional
 from dataclasses import dataclass, field
 
+from agentshrink.provider_clients import (
+    analysis_model,
+    analysis_provider,
+    get_chat_model,
+    infer_provider_from_model_name,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -256,7 +263,18 @@ class TaskClusterer:
         else:
             cluster_labels = self._heuristic_label_clusters(df, labels, unique_labels)
 
-        return cluster_labels
+        return self._ensure_unique_cluster_labels(cluster_labels)
+
+    def _ensure_unique_cluster_labels(self, cluster_labels: dict[int, str]) -> dict[int, str]:
+        """Ensure every cluster gets a unique visible label, even if the raw label text repeats."""
+        seen: dict[str, int] = {}
+        unique_labels: dict[int, str] = {}
+        for cluster_id in sorted(cluster_labels.keys()):
+            raw_label = (cluster_labels.get(cluster_id) or f"cluster_{cluster_id}").strip() or f"cluster_{cluster_id}"
+            count = seen.get(raw_label, 0) + 1
+            seen[raw_label] = count
+            unique_labels[cluster_id] = raw_label if count == 1 else f"{raw_label}_{count}"
+        return unique_labels
 
     def _fallback_label_for_cluster(
         self,
@@ -287,11 +305,12 @@ class TaskClusterer:
         labels: np.ndarray,
         unique_labels: list
     ) -> dict[int, str]:
-        """Use GPT-4o-mini to generate cluster labels from sample prompts."""
-        from langchain_openai import ChatOpenAI
+        """Use the configured analysis provider to generate cluster labels."""
         from langchain_core.messages import SystemMessage, HumanMessage
 
-        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        provider = analysis_provider()
+        model = analysis_model(provider)
+        llm = get_chat_model(provider=provider, model=model, temperature=0)
         cluster_labels = {}
 
         for label in unique_labels:
@@ -319,7 +338,7 @@ Respond with ONLY the label. No explanation."""),
                 label_text = "_".join(label_text.split()[:4])
                 label_text = "".join(c if c.isalnum() or c == "_" else "" for c in label_text)
                 cluster_labels[label] = label_text
-                logger.info(f"Cluster {label} labelled: '{label_text}'")
+                logger.info(f"Cluster {label} labelled with {provider}:{model}: '{label_text}'")
             except Exception as e:
                 logger.warning(f"LLM labelling failed for cluster {label}: {e}")
                 cluster_labels[label] = self._fallback_label_for_cluster(
@@ -413,6 +432,11 @@ Respond with ONLY the label. No explanation."""),
         for label_id, label_name in cluster_label_names.items():
             mask = labels == label_id
             cluster_df = df[mask]
+            reference_model = None
+            reference_provider = "unknown"
+            if "model_name" in cluster_df and not cluster_df["model_name"].dropna().empty:
+                reference_model = str(cluster_df["model_name"].mode().iloc[0]).strip()
+                reference_provider = infer_provider_from_model_name(reference_model)
 
             cluster_info[label_id] = {
                 "id":           label_id,
@@ -424,6 +448,8 @@ Respond with ONLY the label. No explanation."""),
                 "avg_tokens":   float((cluster_df["tokens_in"] + cluster_df["tokens_out"]).mean()) if "tokens_in" in cluster_df else 0,
                 "avg_cost_usd": float(cluster_df["cost_usd"].mean()) if "cost_usd" in cluster_df else 0,
                 "node_distribution": cluster_df["node_name"].value_counts().to_dict() if "node_name" in cluster_df else {},
+                "reference_model": reference_model,
+                "reference_provider": reference_provider,
             }
 
         # Attach cluster assignments to the DataFrame

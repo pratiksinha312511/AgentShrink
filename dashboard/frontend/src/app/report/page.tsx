@@ -1,6 +1,7 @@
 'use client'
-import { useEffect, useState } from 'react'
-import { applyReport, fetchReport } from '@/lib/api'
+import { useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { applyReport, createRoutingWebSocket, fetchAnalysisLogs, fetchReport } from '@/lib/api'
 
 const REC_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   replace_now: { label: 'Replace now', color: '#27500A', bg: '#EAF3DE' },
@@ -22,19 +23,64 @@ function QualityBar({ score }: { score: number }) {
 }
 
 export default function ReportPage() {
+  const searchParams = useSearchParams()
+  const clusterIdParam = searchParams.get('cluster_id')
+  const targetedClusterId = clusterIdParam ? Number(clusterIdParam) : undefined
   const [report, setReport] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [expanded, setExpanded] = useState<number | null>(null)
   const [applying, setApplying] = useState(false)
   const [applyMsg, setApplyMsg] = useState('')
+  const [logLines, setLogLines] = useState<Array<{ line: string; stream: string; timestamp?: number }>>([])
+  const [analysisRunning, setAnalysisRunning] = useState(false)
+  const terminalEndRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
-    fetchReport()
+    fetchReport(Number.isFinite(targetedClusterId) ? targetedClusterId : undefined)
       .then(setReport)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
+  }, [targetedClusterId])
+
+  useEffect(() => {
+    fetchAnalysisLogs()
+      .then((data) => {
+        setLogLines(data?.lines ?? [])
+        setAnalysisRunning(Boolean(data?.running))
+      })
+      .catch(() => {})
+
+    const ws = createRoutingWebSocket(
+      (data) => {
+        if (data.type === 'analysis_log') {
+          setLogLines(prev => [...prev.slice(-399), {
+            line: data.line ?? '',
+            stream: data.stream ?? 'stdout',
+            timestamp: data.timestamp,
+          }])
+        } else if (data.type === 'analysis_complete') {
+          setAnalysisRunning(false)
+        } else if (data.type === 'analysis_error') {
+          setAnalysisRunning(false)
+          setLogLines(prev => [...prev.slice(-399), {
+            line: data.message ?? 'Analysis failed',
+            stream: 'stderr',
+            timestamp: data.timestamp,
+          }])
+        } else if (data.type === 'analysis_progress') {
+          setAnalysisRunning(true)
+        }
+      },
+      () => {}
+    )
+
+    return () => ws.close()
   }, [])
+
+  useEffect(() => {
+    terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [logLines])
 
   if (loading) return <div style={{ color: 'var(--text-tertiary)', padding: 40, textAlign: 'center' }}>Loading report...</div>
   if (error) return (
@@ -66,7 +112,7 @@ export default function ReportPage() {
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>
-            Replaceability Report
+            {Number.isFinite(targetedClusterId) ? `Cluster ${targetedClusterId} Report` : 'Replaceability Report'}
           </h1>
           <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
             Generated at {report?.generated_at?.slice(0, 10)}
@@ -87,6 +133,7 @@ export default function ReportPage() {
 
       {(heuristic || applyMsg) && (
         <div className="card" style={{ padding: '10px 14px', marginBottom: 16, fontSize: 12, color: 'var(--text-secondary)' }}>
+          {Number.isFinite(targetedClusterId) && <div style={{ marginBottom: heuristic || applyMsg ? 8 : 0 }}>Showing a targeted report for cluster {targetedClusterId}.</div>}
           {heuristic && <div>This is a heuristic local-only report because full evaluator mode was skipped.</div>}
           {applyMsg && <div>{applyMsg}</div>}
         </div>
@@ -136,9 +183,14 @@ export default function ReportPage() {
                   {cluster.cluster_name}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                  {cluster.best_slm_display ?? '-'}
+                  {cluster.best_slm_display ?? `Keep ${cluster.incumbent_slm_display ?? 'incumbent baseline'}`}
+                  {(cluster.best_provider || cluster.incumbent_provider) ? (
+                    <span style={{ marginLeft: 6, color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>
+                      {cluster.best_provider ?? cluster.incumbent_provider}
+                    </span>
+                  ) : null}
                 </div>
-                <QualityBar score={cluster.best_score ?? 0} />
+                <QualityBar score={cluster.best_score ?? cluster.incumbent_score ?? 0} />
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
                   {cluster.cluster_size} calls
                 </div>
@@ -155,6 +207,23 @@ export default function ReportPage() {
               {isExpanded && (
                 <div style={{ padding: '16px 20px', background: 'var(--bg-secondary)', borderBottom: '0.5px solid var(--border)' }}>
                   <div style={{ marginBottom: 14 }}>
+                    <div style={{
+                      background: 'var(--bg-primary)', borderRadius: 6,
+                      padding: '10px 12px', border: '0.5px solid var(--border)', marginBottom: 10,
+                    }}>
+                      <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                        Incumbent baseline
+                      </div>
+                      <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>
+                        {cluster.incumbent_slm_display ?? '-'}
+                      </div>
+                      <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 4, fontFamily: 'monospace' }}>
+                        {cluster.incumbent_provider}:{cluster.incumbent_slm}
+                      </div>
+                      <div style={{ marginTop: 6 }}>
+                        <QualityBar score={cluster.incumbent_score ?? 0} />
+                      </div>
+                    </div>
                     <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
                       Model evaluation scores
                     </div>
@@ -167,11 +236,15 @@ export default function ReportPage() {
                           <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 6 }}>
                             {ev.slm_display}
                           </div>
+                          <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginBottom: 6, fontFamily: 'monospace' }}>
+                            {ev.provider}:{ev.slm_name}
+                          </div>
                           {[
                             { label: 'Correctness', val: ev.correctness_score },
                             { label: 'Format', val: ev.format_score },
                             { label: 'Completeness', val: ev.completeness_score },
                             { label: 'Composite', val: ev.composite_score },
+                            { label: 'Selection', val: ev.selection_score },
                           ].map(s => (
                             <div key={s.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 3 }}>
                               <span>{s.label}</span>
@@ -181,7 +254,10 @@ export default function ReportPage() {
                             </div>
                           ))}
                           <div style={{ marginTop: 6, fontSize: 10, color: 'var(--text-tertiary)' }}>
-                            {ev.avg_latency_ms?.toFixed(0)}ms avg · {ev.n_evaluated} samples
+                            {ev.avg_latency_ms?.toFixed(0)}ms avg · {ev.n_evaluated} samples · tier {ev.quality_tier}/5
+                          </div>
+                          <div style={{ marginTop: 4, fontSize: 10, color: 'var(--text-tertiary)' }}>
+                            ${Number(ev.cost_in_per_1k ?? 0).toFixed(6)} in · ${Number(ev.cost_out_per_1k ?? 0).toFixed(6)} out
                           </div>
                         </div>
                       ))}
@@ -218,6 +294,56 @@ export default function ReportPage() {
             </div>
           )
         })}
+      </div>
+
+      <div className="card" style={{ marginTop: 20, overflow: 'hidden' }}>
+        <div style={{
+          padding: '12px 16px',
+          borderBottom: '0.5px solid var(--border)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}>
+          <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)' }}>
+            Analysis Terminal
+          </div>
+          <div style={{ fontSize: 11, color: analysisRunning ? '#1D9E75' : 'var(--text-tertiary)' }}>
+            {analysisRunning ? 'Running...' : 'Idle'}
+          </div>
+        </div>
+        <div style={{
+          background: '#121417',
+          color: '#D7DEE7',
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          fontSize: 11,
+          lineHeight: 1.5,
+          maxHeight: 260,
+          overflowY: 'auto',
+          padding: '12px 14px',
+        }}>
+          {logLines.length === 0 ? (
+            <div style={{ color: '#94A3B8' }}>
+              No analysis logs yet. Start analysis from Overview or evaluate a cluster to stream logs here.
+            </div>
+          ) : (
+            logLines.map((entry, idx) => (
+              <div
+                key={`${idx}-${entry.timestamp ?? idx}`}
+                style={{
+                  color:
+                    entry.stream === 'stderr' ? '#FCA5A5' :
+                    entry.stream === 'meta' ? '#93C5FD' :
+                    '#D7DEE7',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                }}
+              >
+                {entry.line}
+              </div>
+            ))
+          )}
+          <div ref={terminalEndRef} />
+        </div>
       </div>
     </div>
   )

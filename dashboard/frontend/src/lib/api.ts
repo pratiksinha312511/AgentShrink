@@ -19,9 +19,15 @@ export async function fetchClusters() {
   return readJsonOrThrow(r, 'No cluster data - run agentshrink analyse')
 }
 
-export async function fetchReport() {
-  const r = await fetch(`${API}/api/report`, { cache: 'no-store' })
+export async function fetchReport(clusterId?: number) {
+  const suffix = typeof clusterId === 'number' ? `?cluster_id=${clusterId}` : ''
+  const r = await fetch(`${API}/api/report${suffix}`, { cache: 'no-store' })
   return readJsonOrThrow(r, 'No report - run agentshrink analyse')
+}
+
+export async function fetchAnalysisLogs() {
+  const r = await fetch(`${API}/api/analysis/logs`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch analysis logs')
 }
 
 export async function fetchRoutingStats() {
@@ -32,6 +38,36 @@ export async function fetchRoutingStats() {
 export async function fetchConfig() {
   const r = await fetch(`${API}/api/config`, { cache: 'no-store' })
   return readJsonOrThrow(r, 'Failed to fetch config')
+}
+
+export async function fetchModels() {
+  const r = await fetch(`${API}/api/models`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch models')
+}
+
+export async function saveModel(model: any) {
+  const r = await fetch(`${API}/api/models`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(model),
+  })
+  return readJsonOrThrow(r, 'Failed to save model')
+}
+
+export async function deleteModel(modelId: string) {
+  const r = await fetch(`${API}/api/models/${modelId}`, {
+    method: 'DELETE',
+  })
+  return readJsonOrThrow(r, 'Failed to delete model')
+}
+
+export async function saveJudgeModel(modelId: string | null) {
+  const r = await fetch(`${API}/api/models/judge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model_id: modelId }),
+  })
+  return readJsonOrThrow(r, 'Failed to save judge model')
 }
 
 export async function applyReport() {
@@ -78,6 +114,7 @@ export async function triggerAnalyse(opts: {
   min_cluster_size?: number
   skip_eval?: boolean
   no_llm_labels?: boolean
+  cluster_ids?: number[]
 }) {
   const r = await fetch(`${API}/api/analyse`, {
     method: 'POST',

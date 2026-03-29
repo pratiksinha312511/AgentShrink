@@ -8,6 +8,7 @@ const NAV = [
   { href: '/report',    label: 'Report',      dot: '#EF9F27' },
   { href: '/routing',   label: 'Live Routing',dot: '#185FA5' },
   { href: '/finetune',  label: 'Fine-tune',   dot: '#D85A30' },
+  { href: '/models',    label: 'Models',      dot: '#9F3F7A' },
   { href: '/settings',  label: 'Settings',    dot: '#888780' },
 ]
 

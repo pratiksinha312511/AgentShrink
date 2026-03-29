@@ -23,6 +23,7 @@ import sys
 import json
 import pathlib
 import unittest
+import numpy as np
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
@@ -160,16 +161,27 @@ def test_recommendation_logic():
     evaluator = SLMEvaluator()
 
     def make_eval(slm_name: str, score: float) -> ClusterEvalResult:
+        model_costs = {
+            "gemma2:2b": 0.10,
+            "llama3.2:3b": 0.20,
+            "phi3.5:mini": 0.30,
+        }
         return ClusterEvalResult(
             cluster_id=0, cluster_name="test_cluster",
+            provider="ollama",
             slm_name=slm_name, slm_display=slm_name,
+            local=True,
+            quality_tier=2,
+            cost_in_per_1k=model_costs[slm_name],
+            cost_out_per_1k=0.0,
             correctness_score=score, format_score=score,
             completeness_score=score, composite_score=score,
             n_evaluated=20, sample_comparisons=[],
             avg_latency_ms=100.0, p95_latency_ms=200.0,
+            selection_score=0.0,
         )
 
-    # Case 1: gemma2:2b scores 91% → should recommend gemma2:2b (REPLACE_NOW)
+    # Case 1: multiple models pass → highest-ranked passing candidate wins
     evals_1 = [
         make_eval("gemma2:2b",  0.91),
         make_eval("llama3.2:3b", 0.93),
@@ -179,10 +191,10 @@ def test_recommendation_logic():
         0, "classify", 100, {}, evals_1, {"avg_cost_usd": 0.001}
     )
     assert report_1.recommendation == Recommendation.REPLACE_NOW
-    assert report_1.best_slm == "gemma2:2b"  # Smallest that passes
-    console.print(f"  Case 1 (91% gemma): REPLACE_NOW with gemma2:2b ✓")
+    assert report_1.best_slm == "phi3.5:mini"
+    console.print(f"  Case 1 (all pass): REPLACE_NOW with phi3.5:mini ✓")
 
-    # Case 2: gemma2:2b scores 72%, llama3.2:3b scores 88% → recommend llama
+    # Case 2: only llama and phi pass → highest-ranked passing candidate wins
     evals_2 = [
         make_eval("gemma2:2b",   0.72),
         make_eval("llama3.2:3b", 0.88),
@@ -192,8 +204,8 @@ def test_recommendation_logic():
         0, "format", 100, {}, evals_2, {"avg_cost_usd": 0.001}
     )
     assert report_2.recommendation == Recommendation.REPLACE_NOW
-    assert report_2.best_slm == "llama3.2:3b"  # Smallest that passes
-    console.print(f"  Case 2 (72% gemma, 88% llama): REPLACE_NOW with llama3.2:3b ✓")
+    assert report_2.best_slm == "phi3.5:mini"
+    console.print(f"  Case 2 (72% gemma, 88% llama): REPLACE_NOW with phi3.5:mini ✓")
 
     # Case 3: all models score 60-84% → recommend FINE_TUNE with best candidate
     evals_3 = [
@@ -246,14 +258,25 @@ def test_report_serialisation():
             evaluations=[
                 ClusterEvalResult(
                     cluster_id=0, cluster_name="classify_complaint",
+                    provider="ollama",
                     slm_name="gemma2:2b", slm_display="Gemma 2 2B",
+                    local=True,
+                    quality_tier=2,
+                    cost_in_per_1k=0.0,
+                    cost_out_per_1k=0.0,
                     correctness_score=0.91, format_score=0.94,
                     completeness_score=0.88, composite_score=0.92,
                     n_evaluated=20, sample_comparisons=[],
                     avg_latency_ms=28.5, p95_latency_ms=45.0,
+                    selection_score=0.92,
                 )
             ],
             recommendation=Recommendation.REPLACE_NOW,
+            incumbent_provider="openai",
+            incumbent_slm="gpt-4o-mini",
+            incumbent_slm_display="GPT-4o mini",
+            incumbent_score=0.95,
+            best_provider="ollama",
             best_slm="gemma2:2b",
             best_slm_display="Gemma 2 2B",
             best_score=0.92,
@@ -267,6 +290,7 @@ def test_report_serialisation():
         report_path = evaluator.save_report(mock_reports, pathlib.Path(tmpdir))
 
         assert report_path.exists(), "Report file not created"
+        assert (pathlib.Path(tmpdir) / "replaceability_report_cluster_0.json").exists(), "Per-cluster report file not created"
 
         with open(report_path) as f:
             data = json.load(f)
@@ -279,6 +303,89 @@ def test_report_serialisation():
         assert data["summary"]["replace_now_count"] == 1
 
     console.print("  [green]✓ Test 4 passed[/green] — Report serialises and saves correctly")
+
+
+def test_targeted_report_updates_main_report():
+    """
+    TEST 4B: Verify targeted cluster saves refresh the aggregate report.
+    """
+    console.print("\n[bold]Test 4B:[/bold] Targeted report merge")
+
+    from agentshrink.evaluator import (
+        SLMEvaluator, ClusterReport, ClusterEvalResult, Recommendation
+    )
+    import tempfile
+
+    evaluator = SLMEvaluator()
+
+    def make_eval(cluster_id, cluster_name, model_name, score):
+        return ClusterEvalResult(
+            cluster_id=cluster_id,
+            cluster_name=cluster_name,
+            provider="ollama",
+            slm_name=model_name,
+            slm_display=model_name,
+            local=True,
+            quality_tier=2,
+            cost_in_per_1k=0.0,
+            cost_out_per_1k=0.0,
+            correctness_score=score,
+            format_score=score,
+            completeness_score=score,
+            composite_score=score,
+            n_evaluated=5,
+            sample_comparisons=[],
+            avg_latency_ms=42.0,
+            p95_latency_ms=50.0,
+            selection_score=score,
+        )
+
+    def make_report(cluster_id, cluster_name, model_name, score):
+        return ClusterReport(
+            cluster_id=cluster_id,
+            cluster_name=cluster_name,
+            cluster_size=10,
+            node_distribution={"node": 10},
+            evaluations=[make_eval(cluster_id, cluster_name, model_name, score)],
+            recommendation=Recommendation.FINE_TUNE,
+            incumbent_provider="openai",
+            incumbent_slm="gpt-4o-mini",
+            incumbent_slm_display="GPT-4o mini",
+            incumbent_score=0.95,
+            best_provider="ollama",
+            best_slm=model_name,
+            best_slm_display=model_name,
+            best_score=score,
+            estimated_cost_saving_pct=50.0,
+            needs_fine_tuning=True,
+            fine_tune_base_model=model_name,
+        )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_dir = pathlib.Path(tmpdir)
+        evaluator.save_report(
+            [
+                make_report(0, "cluster_zero", "gemma2:2b", 0.60),
+                make_report(1, "cluster_one", "llama3.2:3b", 0.70),
+            ],
+            output_dir,
+        )
+
+        evaluator.save_report(
+            [make_report(1, "cluster_one", "llama3.2:3b", 0.82)],
+            output_dir,
+            filename="replaceability_report_cluster_1.json",
+        )
+
+        with open(output_dir / "replaceability_report.json") as f:
+            data = json.load(f)
+
+        clusters = {c["cluster_id"]: c for c in data["clusters"]}
+        assert len(clusters) == 2
+        assert clusters[0]["best_score"] == 0.60
+        assert clusters[1]["best_score"] == 0.82
+
+    console.print("  [green]✓ Test 4B passed[/green] — Targeted saves update the main report")
 
 
 def test_ollama_availability_check():
@@ -359,7 +466,7 @@ def test_real_ollama_evaluation():
     """
     console.print("\n[bold]Test 7:[/bold] Real Ollama evaluation (optional — requires Ollama)")
 
-    from agentshrink.evaluator import OllamaRunner, SLMEvaluator, EvaluatorConfig, SLMCandidate
+    from agentshrink.evaluator import OllamaRunner, SLMEvaluator, EvaluatorConfig, ModelCandidate
 
     runner = OllamaRunner(EvaluatorConfig())
 
@@ -368,7 +475,20 @@ def test_real_ollama_evaluation():
         console.print("  Start Ollama: ollama serve")
         return
 
-    if not runner.is_model_available("gemma2:2b"):
+    gemma_slm = ModelCandidate(
+        id="test-gemma",
+        provider="ollama",
+        model_name="gemma2:2b",
+        display_name="Gemma 2 2B",
+        enabled=True,
+        local=True,
+        supports=["general"],
+        quality_tier=2,
+        cost_in_per_1k=0.0,
+        cost_out_per_1k=0.0,
+    )
+
+    if not runner.is_model_available(gemma_slm):
         console.print("  [yellow]⚠ Skipped — gemma2:2b not pulled[/yellow]")
         console.print("  Pull model: ollama pull gemma2:2b")
         return
@@ -400,18 +520,15 @@ def test_real_ollama_evaluation():
         content='{"correctness": 9, "format": 9, "completeness": 8}'
     )
 
-    gemma_slm = SLMCandidate(
-        ollama_name="gemma2:2b", display_name="Gemma 2 2B",
-        ram_gb=1.6, tier="fast",
-        strengths=["classification"]
-    )
-
     result = evaluator.evaluate_cluster_with_model(
         cluster_id=0,
         cluster_name="classify_complaint",
         cluster_df=test_df,
-        slm=gemma_slm,
+        centroids={0: np.array([0.0, 0.0])},
+        embeddings=np.array([[0.0, 0.0], [0.1, 0.0], [0.0, 0.1]]),
+        candidate_model=gemma_slm,
         judge_llm=mock_judge,
+        max_cost_reference=0.0001,
     )
 
     assert result.n_evaluated > 0, "No evaluations completed"

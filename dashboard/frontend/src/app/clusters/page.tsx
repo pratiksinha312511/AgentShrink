@@ -1,9 +1,11 @@
 'use client'
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { ScatterChart, Scatter, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
-import { fetchClusters } from '@/lib/api'
+import { fetchClusters, fetchReport, triggerAnalyse } from '@/lib/api'
 
 const ANALYSIS_STORAGE_KEY = 'agentshrink.analysis.running'
+const TARGET_CLUSTER_STORAGE_KEY = 'agentshrink.target_cluster_eval'
 
 interface ClusterPoint {
   x: number; y: number
@@ -65,8 +67,18 @@ export default function ClustersPage() {
   const [error, setError]     = useState('')
   const [selected, setSelected] = useState<string | null>(null)
   const [waitingForAnalysis, setWaitingForAnalysis] = useState(false)
+  const [evaluatingClusterId, setEvaluatingClusterId] = useState<string | null>(null)
+  const [actionMsg, setActionMsg] = useState('')
+  const [reportClusterId, setReportClusterId] = useState<string | null>(null)
+  const [targetedRunReady, setTargetedRunReady] = useState(false)
 
   useEffect(() => {
+    const persistedTargetCluster = window.localStorage.getItem(TARGET_CLUSTER_STORAGE_KEY)
+    if (persistedTargetCluster) {
+      setReportClusterId(persistedTargetCluster)
+      setActionMsg(`Targeted evaluation is still running for cluster ${persistedTargetCluster}.`)
+    }
+
     const loadClusters = async () => {
       try {
         const nextData = await fetchClusters()
@@ -89,6 +101,35 @@ export default function ClustersPage() {
     return () => clearInterval(interval)
   }, [])
 
+  useEffect(() => {
+    if (!reportClusterId || targetedRunReady) return
+
+    let cancelled = false
+    const pollTargetedReport = async () => {
+      try {
+        await fetchReport(Number(reportClusterId))
+        if (cancelled) return
+        setTargetedRunReady(true)
+        setEvaluatingClusterId(null)
+        setWaitingForAnalysis(false)
+        window.localStorage.removeItem(ANALYSIS_STORAGE_KEY)
+        window.localStorage.removeItem(TARGET_CLUSTER_STORAGE_KEY)
+        setActionMsg(`Targeted evaluation complete for cluster ${reportClusterId}.`)
+      } catch {
+        if (!cancelled) {
+          setActionMsg(`Targeted evaluation in progress for cluster ${reportClusterId}...`)
+        }
+      }
+    }
+
+    pollTargetedReport()
+    const interval = setInterval(pollTargetedReport, 5000)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [reportClusterId, targetedRunReady])
+
   if (loading) return <div style={{ color: 'var(--text-tertiary)', padding: 40, textAlign: 'center' }}>Loading cluster map...</div>
 
   if (error) return (
@@ -103,6 +144,38 @@ export default function ClustersPage() {
   )
 
   const clusterIds = Object.keys(data?.cluster_names ?? {})
+  const selectedInfo = selected ? data?.clusters?.[selected] : null
+
+  const handleEvaluateCluster = async (clusterId: string) => {
+    setEvaluatingClusterId(clusterId)
+    setActionMsg('')
+    setReportClusterId(clusterId)
+    setTargetedRunReady(false)
+    window.localStorage.setItem(ANALYSIS_STORAGE_KEY, 'true')
+    window.localStorage.setItem(TARGET_CLUSTER_STORAGE_KEY, clusterId)
+    setWaitingForAnalysis(true)
+    try {
+      const result = await triggerAnalyse({
+        min_cluster_size: 5,
+        skip_eval: false,
+        no_llm_labels: true,
+        cluster_ids: [Number(clusterId)],
+      })
+      setActionMsg(
+        result?.message
+          ? `${result.message} for cluster ${clusterId}. We will keep checking for the report automatically.`
+          : `Targeted evaluation started for cluster ${clusterId} from the saved snapshot. We will keep checking for the report automatically.`
+      )
+    } catch (e: any) {
+      window.localStorage.removeItem(ANALYSIS_STORAGE_KEY)
+      window.localStorage.removeItem(TARGET_CLUSTER_STORAGE_KEY)
+      setWaitingForAnalysis(false)
+      setActionMsg(e?.message || `Failed to start evaluation for cluster ${clusterId}.`)
+      setReportClusterId(null)
+    } finally {
+      setEvaluatingClusterId(null)
+    }
+  }
 
   // Filter points by selected cluster
   const visiblePoints = selected
@@ -118,6 +191,58 @@ export default function ClustersPage() {
           {(data?.n_noise ?? 0) > 0 && ` (${data?.n_noise} noise points excluded)`}
         </div>
       </div>
+
+      {(actionMsg || selected) && (
+        <div className="card" style={{ padding: '12px 14px', marginBottom: 16 }}>
+          {selected && selectedInfo && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: actionMsg ? 10 : 0 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+                  Selected cluster: {data?.cluster_names?.[selected] ?? `cluster_${selected}`}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                  {selectedInfo.size ?? 0} prompts. A targeted run reuses the saved clustering snapshot, evaluates only this cluster, and saves a separate report file.
+                </div>
+                {reportClusterId === selected && !targetedRunReady && (
+                  <div style={{ fontSize: 11, color: '#1D9E75', marginTop: 6 }}>
+                    Evaluation in progress from the saved cluster snapshot. The page will auto-detect when the targeted report is ready.
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => handleEvaluateCluster(selected)}
+                disabled={evaluatingClusterId === selected || (reportClusterId === selected && !targetedRunReady)}
+                style={{
+                  background: '#1D9E75',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 8,
+                  padding: '8px 14px',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  cursor: (evaluatingClusterId === selected || (reportClusterId === selected && !targetedRunReady)) ? 'default' : 'pointer',
+                  opacity: (evaluatingClusterId === selected || (reportClusterId === selected && !targetedRunReady)) ? 0.7 : 1,
+                  flexShrink: 0,
+                }}
+              >
+                {evaluatingClusterId === selected ? 'Starting...' : (reportClusterId === selected && !targetedRunReady) ? 'Running...' : 'Evaluate Cluster'}
+              </button>
+            </div>
+          )}
+          {actionMsg && (
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+              <div>{actionMsg}</div>
+              {reportClusterId && targetedRunReady && (
+                <div style={{ marginTop: 6 }}>
+                  <Link href={`/report?cluster_id=${reportClusterId}`} style={{ color: '#1D9E75', fontWeight: 500 }}>
+                    Open targeted report
+                  </Link>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Cluster filter pills */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
@@ -188,9 +313,32 @@ export default function ClustersPage() {
               }}
               onClick={() => setSelected(selected === cid ? null : cid)}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6 }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
-                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)' }}>{name}</div>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
+                  <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)' }}>{name}</div>
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleEvaluateCluster(cid)
+                  }}
+                  disabled={evaluatingClusterId === cid || (reportClusterId === cid && !targetedRunReady)}
+                  style={{
+                    background: 'transparent',
+                    color: '#1D9E75',
+                    border: '0.5px solid #1D9E75',
+                    borderRadius: 999,
+                    padding: '3px 8px',
+                    fontSize: 10,
+                    fontWeight: 500,
+                    cursor: (evaluatingClusterId === cid || (reportClusterId === cid && !targetedRunReady)) ? 'default' : 'pointer',
+                    opacity: (evaluatingClusterId === cid || (reportClusterId === cid && !targetedRunReady)) ? 0.6 : 1,
+                    flexShrink: 0,
+                  }}
+                >
+                  {evaluatingClusterId === cid ? 'Starting...' : (reportClusterId === cid && !targetedRunReady) ? 'Running...' : 'Evaluate'}
+                </button>
               </div>
               <div style={{ fontSize: 11, color: 'var(--text-tertiary)', lineHeight: 1.6 }}>
                 {info?.size ?? 0} prompts<br />

@@ -22,8 +22,12 @@ export default function SettingsPage() {
     ['Local model', config.target_agent_ollama_model],
     ['Fallback API model', config.target_agent_openai_model],
     ['Ollama host', config.ollama_host],
+    ['Eval samples / cluster', config.eval_samples_per_cluster],
+    ['Remote min interval (s)', config.remote_min_interval_s],
+    ['Judge min interval (s)', config.judge_min_interval_s],
     ['Confidence threshold', config.confidence_threshold],
     ['Quality threshold', config.quality_threshold],
+    ['Configured models', config.model_count],
     ['Database', config.db_path],
     ['Output dir', config.output_dir],
   ]

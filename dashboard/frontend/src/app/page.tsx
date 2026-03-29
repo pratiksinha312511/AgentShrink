@@ -72,14 +72,14 @@ export default function OverviewPage() {
   const handleAnalyse = async () => {
     setAnalysing(true)
     window.localStorage.setItem(ANALYSIS_STORAGE_KEY, 'true')
-    setAnalysisMsg('Starting analysis...')
+    setAnalysisMsg('Starting full analysis...')
     try {
       const result = await triggerAnalyse({
         min_cluster_size: 5,
-        skip_eval: true,
-        no_llm_labels: true,
+        skip_eval: false,
+        no_llm_labels: false,
       })
-      setAnalysisMsg(result?.message ?? 'Analysis started. This will keep running if you change tabs.')
+      setAnalysisMsg(result?.message ?? 'Full analysis started. This will keep running if you change tabs.')
     } catch (e) {
       console.error(e)
       window.localStorage.removeItem(ANALYSIS_STORAGE_KEY)

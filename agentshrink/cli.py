@@ -20,6 +20,9 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from agentshrink.project_config import get_eval_samples_per_cluster
+from agentshrink.project_config import get_judge_min_interval_s, get_remote_min_interval_s
+
 console = Console()
 
 
@@ -171,7 +174,8 @@ def status(db):
 @click.option("--no-llm-labels", is_flag=True, default=False, help="Use heuristic labels")
 @click.option("--skip-eval", is_flag=True, default=False, help="Only cluster, skip SLM evaluation")
 @click.option("--min-cluster-size", default=5, type=int, help="HDBSCAN min_cluster_size")
-def analyse(db, output_dir, no_llm_labels, skip_eval, min_cluster_size):
+@click.option("--cluster-id", "cluster_ids", multiple=True, type=int, help="Evaluate/report only the specified cluster_id. Can be passed multiple times.")
+def analyse(db, output_dir, no_llm_labels, skip_eval, min_cluster_size, cluster_ids):
     """[Phase 2+3] Cluster captured calls and generate Replaceability Report."""
     import logging
 
@@ -220,6 +224,11 @@ def analyse(db, output_dir, no_llm_labels, skip_eval, min_cluster_size):
     for cid, info in cluster_result["cluster_info"].items():
         console.print(f"    {cid}: '{info['name']}' ({info['size']} entries)")
 
+    if cluster_ids:
+        console.print(
+            f"  [cyan]Targeted evaluation enabled for cluster_id(s): {', '.join(str(cid) for cid in cluster_ids)}[/cyan]"
+        )
+
     clusterer.save_results(cluster_result, output_path)
 
     # Persist TF-IDF vectorizer when sentence-transformers is unavailable.
@@ -243,11 +252,18 @@ def analyse(db, output_dir, no_llm_labels, skip_eval, min_cluster_size):
 
     from agentshrink.evaluator import EvaluatorConfig, SLMEvaluator
 
-    evaluator = SLMEvaluator(config=EvaluatorConfig(n_samples_per_cluster=20, verbose=True))
+    evaluator = SLMEvaluator(
+        config=EvaluatorConfig(
+            n_samples_per_cluster=get_eval_samples_per_cluster(),
+            remote_min_interval_s=get_remote_min_interval_s(),
+            judge_min_interval_s=get_judge_min_interval_s(),
+            verbose=True,
+        )
+    )
 
     try:
         with console.status("Evaluating... (~5-15 minutes)"):
-            reports = evaluator.evaluate_all_clusters(cluster_result)
+            reports = evaluator.evaluate_all_clusters(cluster_result, cluster_ids=list(cluster_ids))
     except RuntimeError as e:
         console.print(f"[red]{e}[/red]")
         console.print("Fix: ollama serve && ollama pull gemma2:2b")
@@ -255,7 +271,15 @@ def analyse(db, output_dir, no_llm_labels, skip_eval, min_cluster_size):
         sys.exit(1)
 
     console.print("\n[bold]Step 4/4[/bold] Generating report...")
-    report_path = evaluator.save_report(reports, output_path)
+    report_filename = (
+        f"replaceability_report_cluster_{cluster_ids[0]}.json"
+        if len(cluster_ids) == 1 else
+        "replaceability_report.json"
+    )
+    if len(cluster_ids) > 1:
+        joined = "_".join(str(cid) for cid in cluster_ids)
+        report_filename = f"replaceability_report_clusters_{joined}.json"
+    report_path = evaluator.save_report(reports, output_path, filename=report_filename)
     evaluator.print_report(reports)
 
     console.print(f"\n[green]OK Report: {report_path}[/green]")

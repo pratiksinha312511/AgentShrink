@@ -141,6 +141,7 @@ class ShrinkLLM(BaseChatModel):
     _index:          Any = None
     _fallback_llm:   Any = None
     _routing_counts: dict = {}
+    _provider_clients: dict = {}
 
     class Config:
         arbitrary_types_allowed = True
@@ -152,6 +153,7 @@ class ShrinkLLM(BaseChatModel):
         # Set up the fallback LLM
         self._setup_fallback()
         self._routing_counts = {"local": 0, "fallback": 0, "error": 0}
+        self._provider_clients = {}
 
     def _load_index(self):
         """Load the CentroidIndex from the output directory."""
@@ -276,6 +278,10 @@ class ShrinkLLM(BaseChatModel):
         # ── EXECUTE ──
         if decision.is_local and not self.dry_run:
             result = self._call_ollama(messages, decision, stop)
+        elif not self.dry_run and (
+            decision.provider != self.fallback_provider or decision.model_name != self.fallback_model
+        ):
+            result = self._call_selected_model(messages, decision, stop, run_manager, **kwargs)
         else:
             result = self._call_fallback(messages, stop, run_manager, **kwargs)
 
@@ -373,12 +379,69 @@ class ShrinkLLM(BaseChatModel):
             messages, stop=stop, run_manager=run_manager, **kwargs
         )
 
+    def _call_selected_model(
+        self,
+        messages: List[BaseMessage],
+        decision: Any,
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        client = self._get_provider_client(decision.provider, decision.model_name)
+        if client is None:
+            logger.warning(
+                f"Provider client unavailable for {decision.provider}:{decision.model_name}. "
+                f"Falling back to {self.fallback_provider}:{self.fallback_model}."
+            )
+            return self._call_fallback(messages, stop, run_manager, **kwargs)
+        return client._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+
+    def _get_provider_client(self, provider: str, model_name: str):
+        cache_key = (provider, model_name)
+        if cache_key in self._provider_clients:
+            return self._provider_clients[cache_key]
+
+        client = None
+        try:
+            if provider == "openai":
+                from langchain_openai import ChatOpenAI
+                kwargs = {}
+                base_url = os.getenv("OPENAI_BASE_URL", None)
+                api_key = os.getenv("OPENAI_API_KEY", None)
+                if base_url:
+                    kwargs["base_url"] = base_url
+                if api_key:
+                    kwargs["api_key"] = api_key
+                client = ChatOpenAI(model=model_name, temperature=self.temperature, **kwargs)
+            elif provider == "nvidia":
+                from langchain_openai import ChatOpenAI
+                client = ChatOpenAI(
+                    model=model_name,
+                    temperature=self.temperature,
+                    base_url=os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
+                    api_key=os.getenv("NVIDIA_API_KEY"),
+                )
+            elif provider == "gemini":
+                from langchain_google_genai import ChatGoogleGenerativeAI
+                client = ChatGoogleGenerativeAI(
+                    model=model_name,
+                    temperature=self.temperature,
+                    google_api_key=os.getenv("GOOGLE_API_KEY"),
+                )
+        except Exception as e:
+            logger.warning(f"Failed to initialize provider client for {provider}:{model_name}: {e}")
+            client = None
+
+        self._provider_clients[cache_key] = client
+        return client
+
     def _make_fallback_decision(self, reason: str) -> Any:
         """Create a fallback routing decision."""
         from agentshrink.centroid_index import RoutingDecision
         return RoutingDecision(
             cluster_id=-1,
             cluster_name="unknown",
+            provider=self.fallback_provider,
             model_name=self.fallback_model,
             model_display=f"Fallback ({self.fallback_model})",
             confidence=0.0,
@@ -404,6 +467,7 @@ class ShrinkLLM(BaseChatModel):
             try:
                 payload = {
                     "cluster_name":  decision.cluster_name,
+                    "provider":      getattr(decision, "provider", self.fallback_provider),
                     "model_name":    decision.model_name,
                     "model_display": decision.model_display,
                     "is_local":      decision.is_local,
@@ -438,10 +502,10 @@ class ShrinkLLM(BaseChatModel):
         ts = datetime.datetime.now().strftime("%H:%M:%S")
 
         if decision.is_local:
-            model_str = f"\033[92m{decision.model_name}\033[0m"  # Green
+            model_str = f"\033[92m{decision.provider}:{decision.model_name}\033[0m"  # Green
             source    = "LOCAL"
         else:
-            model_str = f"\033[93m{self.fallback_model}\033[0m"  # Yellow
+            model_str = f"\033[93m{decision.provider}:{decision.model_name}\033[0m"  # Yellow
             source    = "FALL "
 
         prompt_preview = prompt_text[:60].replace("\n", " ").strip()
