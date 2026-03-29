@@ -1,0 +1,6 @@
+modal==1.4.0
+autotrain-advanced==0.8.36
+huggingface_hub==0.27.0
+transformers==4.48.0
+peft==0.14.0
+accelerate==1.2.1
