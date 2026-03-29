@@ -27,6 +27,7 @@ import pathlib
 import sqlite3
 import logging
 import os
+import threading
 from typing import Optional
 from contextlib import asynccontextmanager
 from contextlib import suppress
@@ -51,6 +52,14 @@ import sys
 sys.path.insert(0, SYS_PATH_ROOT)
 
 from agentshrink.logger import _estimate_cost
+from agentshrink.finetune.jobs import FineTuneJobStore
+from agentshrink.finetune.runtime import (
+    backend_statuses,
+    choose_default_model,
+    deploy_to_ollama,
+    evaluate_deployed_model,
+    write_training_artifacts,
+)
 
 
 def _load_cluster_info() -> dict | None:
@@ -191,6 +200,248 @@ def _load_clustered_df():
     return pd.read_parquet(clustered_df_path)
 
 
+def _prepare_finetune_payload(cluster_id: int):
+    from agentshrink.finetuner import FineTuner
+
+    df = _load_clustered_df()
+    cluster_info = _load_cluster_info() or {}
+    cluster_meta = (cluster_info.get("clusters") or {}).get(str(cluster_id))
+    if not cluster_meta:
+        raise HTTPException(status_code=404, detail="Cluster metadata not found.")
+
+    cluster_df = df[df["cluster_id"] == cluster_id].copy()
+    if len(cluster_df) == 0:
+        raise HTTPException(status_code=404, detail="Cluster rows not found.")
+
+    ft = FineTuner(output_dir=OUTPUT_DIR)
+    dataset_path = ft.export_dataset(
+        cluster_id=cluster_id,
+        cluster_name=cluster_meta["name"],
+        cluster_df=cluster_df,
+        min_examples=10,
+    )
+
+    # Build prompt/completion rows without depending on notebook-only paths.
+    clean_df = cluster_df[
+        (cluster_df["workflow_success"] == 1) &
+        (cluster_df["prompt"].notna()) &
+        (cluster_df["response"].notna()) &
+        (cluster_df["prompt"].str.len() > 20) &
+        (cluster_df["response"].str.len() > 1)
+    ].copy()
+    training_rows = [
+        {
+            "prompt": str(row["prompt"]),
+            "completion": str(row["response"]),
+            "node_name": str(row.get("node_name", "")),
+        }
+        for _, row in clean_df.iterrows()
+    ]
+    if not training_rows:
+        raise HTTPException(status_code=400, detail="Cluster does not have enough clean examples to train.")
+
+    return {
+        "cluster_meta": cluster_meta,
+        "dataset_path": dataset_path,
+        "training_rows": training_rows,
+    }
+
+
+def _run_finetune_job(job_id: str, backend: str, config: dict, training_rows: list[dict], hf_token: str | None = None):
+    from agentshrink.finetuner import FineTuner
+    from agentshrink.finetune.hf_trainer import run_hf_training
+    from agentshrink.finetune.modal_trainer import run_modal_training
+
+    stop_event = finetune_stop_events[job_id]
+
+    def on_status(message: str, progress: int):
+        job_store.update_job(job_id, status="running", phase=message, progress=progress)
+        job_store.append_log(job_id, message)
+
+    def on_log(message: str):
+        job_store.append_log(job_id, message)
+
+    def on_metric(metric: dict):
+        job_store.append_metric(job_id, metric)
+
+    try:
+        job = job_store.update_job(
+            job_id,
+            status="running",
+            phase="Preparing training job",
+            progress=5,
+            started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        )
+        artifact_dir = OUTPUT_DIR / "finetuned" / job_id
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        run_config = dict(config)
+        run_config["artifact_dir"] = str(artifact_dir)
+
+        if backend == "modal":
+            result = run_modal_training(
+                run_config,
+                training_rows,
+                on_status=on_status,
+                on_log=on_log,
+                on_call=lambda call: finetune_modal_calls.__setitem__(job_id, call),
+                should_stop=stop_event.is_set,
+            )
+        elif backend == "huggingface":
+            if not hf_token:
+                raise RuntimeError("HF_TOKEN is missing. Add it in .env or the request body.")
+            result = run_hf_training(
+                run_config,
+                training_rows,
+                hf_token=hf_token,
+                on_status=on_status,
+                on_log=on_log,
+                on_metric=on_metric,
+                on_process=lambda proc: finetune_processes.__setitem__(job_id, proc),
+                should_stop=stop_event.is_set,
+            )
+        else:
+            raise RuntimeError(f"Unsupported backend '{backend}'")
+
+        if stop_event.is_set():
+            job_store.update_job(
+                job_id,
+                status="stopped",
+                phase="Stopped by user",
+                progress=0,
+                ended_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            )
+            return
+
+        artifact_info = write_training_artifacts(result, artifact_dir)
+        job_store.update_job(
+            job_id,
+            status="completed",
+            phase="Training finished",
+            progress=100,
+            result={
+                "artifact_kind": artifact_info["artifact_kind"],
+                "deploy_base_model": result.get("deploy_base_model", config["deploy_base_model"]),
+                "base_model": config["base_model"],
+            },
+            artifacts=artifact_info,
+            can_register=True,
+            ended_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        )
+        on_log("Training complete. Ready to deploy into Ollama.")
+    except Exception as exc:
+        status = "stopped" if stop_event.is_set() else "failed"
+        job_store.update_job(
+            job_id,
+            status=status,
+            phase="Training stopped" if status == "stopped" else "Training failed",
+            error=None if status == "stopped" else str(exc),
+            ended_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        )
+        if status == "stopped":
+            job_store.append_log(job_id, "Training stopped by user.")
+        else:
+            job_store.append_log(job_id, str(exc), level="error")
+    finally:
+        finetune_threads.pop(job_id, None)
+        finetune_stop_events.pop(job_id, None)
+        finetune_processes.pop(job_id, None)
+        finetune_modal_calls.pop(job_id, None)
+
+
+def _reconcile_finetune_job(job: dict) -> dict:
+    """
+    Persisted jobs survive backend restarts, but the in-memory thread/process/call
+    handles do not. If a job still says queued/running after restart and there is
+    no live handle attached anymore, mark it as stopped so the UI can recover.
+    """
+    if not job:
+        return job
+    status = job.get("status")
+    if status not in {"queued", "running", "deploying"}:
+        return job
+
+    job_id = job["job_id"]
+    has_live_handle = any((
+        job_id in finetune_threads,
+        job_id in finetune_processes,
+        job_id in finetune_modal_calls,
+        job_id in finetune_deploy_threads,
+    ))
+    if has_live_handle:
+        return job
+
+    updated = job_store.update_job(
+        job_id,
+        status="stopped",
+        phase="Stopped after backend restart",
+        error=None,
+        ended_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    )
+    job_store.append_log(job_id, "Recovered stale in-progress job after backend restart. Marked as stopped.")
+    return job_store.get_job(job_id) or updated
+
+
+def _run_deploy_job(job_id: str):
+    job = job_store.get_job(job_id)
+    if not job:
+        return
+
+    def update_deploy(phase: str, progress: int):
+        job_store.update_job(job_id, status="deploying", phase=phase, progress=progress)
+        job_store.append_log(job_id, phase)
+
+    try:
+        update_deploy("Preparing local deployment", 8)
+        deploy_result = deploy_to_ollama(
+            cluster_name=job["cluster_name"],
+            cluster_id=int(job["cluster_id"]),
+            artifact_info=job["artifacts"],
+            deploy_base_model=job["result"].get("deploy_base_model") or job.get("deploy_base_model"),
+            output_dir=OUTPUT_DIR,
+            on_log=lambda message: job_store.append_log(job_id, message),
+        )
+
+        update_deploy("Running post-train accuracy check", 72)
+        accuracy = evaluate_deployed_model(
+            deploy_result["ollama_name"],
+            _prepare_finetune_payload(int(job["cluster_id"]))["training_rows"],
+            sample_size=2,
+            on_log=lambda message: job_store.append_log(job_id, message),
+        )
+
+        from agentshrink.finetuner import FineTuner
+
+        ft = FineTuner(output_dir=OUTPUT_DIR)
+        update_deploy("Registering model for routing", 90)
+        ok = ft.register_fine_tuned_model(
+            cluster_id=int(job["cluster_id"]),
+            ollama_name=deploy_result["ollama_name"],
+            display_name=deploy_result["display_name"],
+        )
+        if not ok:
+            raise RuntimeError("Model deployed locally, but AgentShrink could not register it for routing.")
+
+        job_store.update_job(
+            job_id,
+            status="deployed",
+            phase="Deployed and registered",
+            progress=100,
+            registered_model=deploy_result["ollama_name"],
+            can_register=True,
+            result={
+                **job.get("result", {}),
+                "post_train_accuracy": accuracy,
+                "deployed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            },
+        )
+        job_store.append_log(job_id, f"Deployment complete. Registered {deploy_result['ollama_name']} for routing.")
+    except Exception as exc:
+        job_store.update_job(job_id, status="completed", phase="Deployment failed", progress=100, error=str(exc))
+        job_store.append_log(job_id, str(exc), level="error")
+    finally:
+        finetune_deploy_threads.pop(job_id, None)
+
+
 # ─────────────────────────────────────────────
 # WEBSOCKET CONNECTION MANAGER
 # Broadcasts live routing events to all connected dashboard tabs
@@ -225,6 +476,12 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
+job_store = FineTuneJobStore(OUTPUT_DIR)
+finetune_stop_events: dict[str, threading.Event] = {}
+finetune_threads: dict[str, threading.Thread] = {}
+finetune_processes: dict[str, object] = {}
+finetune_modal_calls: dict[str, object] = {}
+finetune_deploy_threads: dict[str, threading.Thread] = {}
 
 # Global routing event queue — ShrinkLLM pushes events here,
 # WebSocket handler reads and broadcasts them
@@ -606,6 +863,13 @@ class RegisterFineTuneRequest(BaseModel):
     display_name: str
 
 
+class StartFineTuneRequest(BaseModel):
+    cluster_id: int
+    backend: str
+    config: dict = {}
+    hf_token: Optional[str] = None
+
+
 def _ollama_model_names() -> list[str]:
     try:
         import ollama
@@ -713,6 +977,135 @@ async def finetune_preview(cluster_id: int, limit: int = 5):
             "node_name": str(row.get("node_name", "")),
         })
     return {"cluster_id": cluster_id, "count": len(cluster_df), "examples": records}
+
+
+@app.get("/api/finetune/backends")
+async def finetune_backends():
+    return {"backends": backend_statuses()}
+
+
+@app.get("/api/finetune/jobs")
+async def finetune_jobs():
+    jobs = [_reconcile_finetune_job(job) for job in job_store.list_jobs()]
+    return {"jobs": jobs}
+
+
+@app.get("/api/finetune/jobs/{job_id}")
+async def finetune_job(job_id: str):
+    job = job_store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Fine-tune job not found.")
+    return _reconcile_finetune_job(job)
+
+
+@app.post("/api/finetune/start")
+async def finetune_start(req: StartFineTuneRequest):
+    if req.backend not in {"modal", "huggingface"}:
+        raise HTTPException(status_code=400, detail="Choose a supported backend before starting training.")
+
+    prepared = _prepare_finetune_payload(req.cluster_id)
+    cluster_name = prepared["cluster_meta"]["name"]
+    default_model = choose_default_model(req.backend)
+    config = {
+        "cluster_id": req.cluster_id,
+        "cluster_name": cluster_name,
+        "base_model": req.config.get("base_model") or default_model["id"],
+        "deploy_base_model": req.config.get("deploy_base_model") or default_model["deploy_base_model"],
+        "epochs": int(req.config.get("epochs", 2)),
+        "batch_size": int(req.config.get("batch_size", 2 if req.backend == "modal" else 1)),
+        "learning_rate": float(req.config.get("learning_rate", 2e-4)),
+        "lora_r": int(req.config.get("lora_r", 16)),
+        "max_seq_length": int(req.config.get("max_seq_length", 512)),
+    }
+
+    job = job_store.create_job(
+        cluster_id=req.cluster_id,
+        cluster_name=cluster_name,
+        backend=req.backend,
+        config=config,
+        dataset_path=prepared["dataset_path"],
+        sample_count=len(prepared["training_rows"]),
+        base_model=config["base_model"],
+        deploy_base_model=config["deploy_base_model"],
+    )
+    job_store.append_log(job["job_id"], f"Queued {req.backend} training job for cluster '{cluster_name}'")
+
+    stop_event = threading.Event()
+    finetune_stop_events[job["job_id"]] = stop_event
+    worker = threading.Thread(
+        target=_run_finetune_job,
+        args=(job["job_id"], req.backend, config, prepared["training_rows"], req.hf_token or os.getenv("HF_TOKEN")),
+        daemon=True,
+    )
+    finetune_threads[job["job_id"]] = worker
+    worker.start()
+    return {"status": "started", "job": job_store.get_job(job["job_id"])}
+
+
+@app.post("/api/finetune/jobs/{job_id}/stop")
+async def finetune_stop(job_id: str):
+    job = job_store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Fine-tune job not found.")
+    if job.get("status") not in {"queued", "running"}:
+        return {"status": "ignored", "message": f"Job is already {job.get('status')}."}
+
+    stop_event = finetune_stop_events.get(job_id)
+    has_live_handle = any((
+        stop_event is not None,
+        job_id in finetune_processes,
+        job_id in finetune_modal_calls,
+        job_id in finetune_threads,
+    ))
+    if not has_live_handle:
+        updated = job_store.update_job(
+            job_id,
+            status="stopped",
+            phase="Stopped (stale job recovered)",
+            stop_requested=True,
+            error=None,
+            ended_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        )
+        job_store.append_log(job_id, "No live backend worker was attached to this job. Marked as stopped immediately.")
+        return {"status": "ok", "job": updated}
+
+    if stop_event:
+        stop_event.set()
+    process = finetune_processes.get(job_id)
+    if process is not None:
+        try:
+            process.terminate()
+        except Exception:
+            try:
+                process.kill()
+            except Exception:
+                pass
+    modal_call = finetune_modal_calls.get(job_id)
+    if modal_call is not None:
+        try:
+            modal_call.cancel(terminate_containers=True)
+        except Exception:
+            pass
+    updated = job_store.update_job(job_id, stop_requested=True, phase="Stop requested")
+    job_store.append_log(job_id, "Stop requested. AgentShrink is cancelling the remote training job.")
+    return {"status": "ok", "job": updated}
+
+
+@app.post("/api/finetune/jobs/{job_id}/deploy")
+async def finetune_deploy(job_id: str):
+    job = job_store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Fine-tune job not found.")
+    if job.get("status") != "completed":
+        raise HTTPException(status_code=400, detail="Training must complete successfully before deployment.")
+    if job_id in finetune_deploy_threads:
+        return {"status": "started", "job": job}
+
+    updated = job_store.update_job(job_id, status="deploying", phase="Preparing local deployment", progress=8, error=None)
+    worker = threading.Thread(target=_run_deploy_job, args=(job_id,), daemon=True)
+    finetune_deploy_threads[job_id] = worker
+    worker.start()
+    return {"status": "started", "job": updated}
 
 
 @app.post("/api/finetune/export")

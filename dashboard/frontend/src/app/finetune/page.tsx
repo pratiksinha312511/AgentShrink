@@ -1,123 +1,175 @@
 'use client'
-import { useEffect, useState } from 'react'
+
+import type { CSSProperties } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import {
-  exportFineTuneData,
+  deployFineTuneJob,
+  fetchFineTuneBackends,
+  fetchFineTuneJobs,
   fetchFineTunePreview,
-  fetchOllamaModels,
   fetchReport,
-  registerFineTunedModel,
+  startFineTuneJob,
+  stopFineTuneJob,
 } from '@/lib/api'
 
 export default function FinetunePage() {
   const [report, setReport] = useState<any>(null)
+  const [backends, setBackends] = useState<any[]>([])
+  const [jobs, setJobs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [selected, setSelected] = useState<number | null>(null)
+  const [selectedClusterId, setSelectedClusterId] = useState<number | null>(null)
+  const [selectedBackend, setSelectedBackend] = useState<string | null>(null)
   const [preview, setPreview] = useState<any>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [actionMsg, setActionMsg] = useState('')
-  const [registerModel, setRegisterModel] = useState('')
-  const [registerDisplay, setRegisterDisplay] = useState('')
-  const [ollamaModels, setOllamaModels] = useState<string[]>([])
-  const [modelsDir, setModelsDir] = useState('')
-  const [exportResult, setExportResult] = useState<any>(null)
+  const [starting, setStarting] = useState(false)
+  const [deploying, setDeploying] = useState(false)
+  const [epochs, setEpochs] = useState(2)
+  const [learningRate, setLearningRate] = useState('0.0002')
+  const [baseModel, setBaseModel] = useState('')
 
   useEffect(() => {
-    fetchReport()
-      .then(setReport)
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false))
-
-    fetchOllamaModels()
-      .then((data) => {
-        setOllamaModels(data.models || [])
-        setModelsDir(data.models_dir || '')
+    Promise.all([fetchReport(), fetchFineTuneBackends(), fetchFineTuneJobs()])
+      .then(([reportData, backendData, jobData]) => {
+        setReport(reportData)
+        setBackends(backendData.backends || [])
+        setJobs(jobData.jobs || [])
       })
-      .catch(() => {})
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false))
   }, [])
 
-  const candidates = (report?.clusters ?? []).filter((c: any) => c.recommendation === 'fine_tune')
-  const selectedCluster = candidates.find((c: any) => c.cluster_id === selected)
-  const recommendedModelName = buildRecommendedModelName(selectedCluster?.cluster_name)
-  const recommendedDisplayName = buildRecommendedDisplayName(selectedCluster?.cluster_name)
+  const candidates = useMemo(
+    () => (report?.clusters ?? []).filter((c: any) => c.recommendation === 'fine_tune'),
+    [report]
+  )
+  const selectedCluster = candidates.find((c: any) => c.cluster_id === selectedClusterId) || null
+  const selectedBackendInfo = backends.find((backend) => backend.id === selectedBackend) || null
+  const latestJob = useMemo(() => {
+    if (!selectedClusterId) return null
+    return jobs.find((job) => Number(job.cluster_id) === Number(selectedClusterId)) || null
+  }, [jobs, selectedClusterId])
 
   useEffect(() => {
-    if (candidates.length > 0 && selected === null) {
-      setSelected(candidates[0].cluster_id)
+    if (candidates.length > 0 && selectedClusterId === null) {
+      setSelectedClusterId(candidates[0].cluster_id)
     }
-  }, [candidates, selected])
+  }, [candidates, selectedClusterId])
 
   useEffect(() => {
-    if (!selectedCluster) return
-    setRegisterModel(recommendedModelName)
-    setRegisterDisplay(recommendedDisplayName)
-    setExportResult(null)
-  }, [selectedCluster, recommendedModelName, recommendedDisplayName])
-
-  useEffect(() => {
-    if (selected === null) return
+    if (!selectedClusterId) return
     setPreviewLoading(true)
-    fetchFineTunePreview(selected)
+    fetchFineTunePreview(selectedClusterId)
       .then(setPreview)
       .catch(() => setPreview(null))
       .finally(() => setPreviewLoading(false))
-  }, [selected])
+  }, [selectedClusterId])
 
-  const handleExport = async () => {
-    if (selected === null) return
+  useEffect(() => {
+    if (!selectedBackendInfo) return
+    const defaultModel = selectedBackendInfo.models?.[0]
+    setBaseModel(defaultModel?.id || '')
+  }, [selectedBackendInfo])
+
+  useEffect(() => {
+    const hasActiveJob = jobs.some((job) => ['queued', 'running', 'deploying'].includes(job.status))
+    if (!hasActiveJob) return
+
+    const timer = window.setInterval(() => {
+      fetchFineTuneJobs()
+        .then((data) => setJobs(data.jobs || []))
+        .catch(() => {})
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [jobs])
+
+  const backendModelOptions = selectedBackendInfo?.models || []
+  const canStart = !!selectedCluster && !!selectedBackend && !latestJobInFlight(latestJob)
+  const canStop = latestJobInFlight(latestJob)
+  const canDeploy = latestJob?.status === 'completed'
+  const deployed = latestJob?.status === 'deployed'
+
+  const handleStartTraining = async () => {
+    if (!selectedCluster || !selectedBackend) return
+    setStarting(true)
     setActionMsg('')
     try {
-      const res = await exportFineTuneData(selected)
-      setExportResult(res)
-      setActionMsg(`Exported ${res.example_count} examples. Dataset: ${res.dataset_path}. Notebook: ${res.notebook_path}`)
+      const chosenModel = backendModelOptions.find((model: any) => model.id === baseModel) || backendModelOptions[0]
+      const res = await startFineTuneJob({
+        cluster_id: selectedCluster.cluster_id,
+        backend: selectedBackend,
+        config: {
+          base_model: chosenModel?.id,
+          deploy_base_model: chosenModel?.deploy_base_model,
+          epochs,
+          learning_rate: Number(learningRate),
+        },
+      })
+      setJobs((prev) => [res.job, ...prev.filter((job) => job.job_id !== res.job.job_id)])
+      setActionMsg(`Started ${selectedBackend} training for ${selectedCluster.cluster_name}.`)
     } catch (e: any) {
-      setActionMsg(e.message || 'Failed to export training data.')
+      setActionMsg(e.message || 'Failed to start fine-tune job.')
+    } finally {
+      setStarting(false)
     }
   }
 
-  const handleRegister = async () => {
-    if (selected === null || !registerModel.trim() || !registerDisplay.trim()) return
+  const handleStopTraining = async () => {
+    if (!latestJob) return
     setActionMsg('')
     try {
-      const res = await registerFineTunedModel(selected, registerModel.trim(), registerDisplay.trim())
-      setActionMsg(res.message)
+      const res = await stopFineTuneJob(latestJob.job_id)
+      setJobs((prev) => [res.job, ...prev.filter((job) => job.job_id !== res.job.job_id)])
+      setActionMsg('Stop requested. The training backend will stop at the next safe checkpoint.')
     } catch (e: any) {
-      setActionMsg(e.message || 'Failed to register fine-tuned model.')
+      setActionMsg(e.message || 'Failed to stop fine-tune job.')
     }
   }
 
-  const handleCopyRecommendedName = async () => {
+  const handleDeploy = async () => {
+    if (!latestJob) return
+    setDeploying(true)
+    setActionMsg('')
     try {
-      await navigator.clipboard.writeText(recommendedModelName)
-      setActionMsg(`Copied recommended model name: ${recommendedModelName}`)
-    } catch {
-      setActionMsg('Could not copy automatically. Please copy the recommended name manually.')
+      setJobs((prev) =>
+        prev.map((job) =>
+          job.job_id === latestJob.job_id
+            ? { ...job, status: 'deploying', phase: 'Preparing local deployment', progress: Math.max(8, job.progress || 0) }
+            : job
+        )
+      )
+      const res = await deployFineTuneJob(latestJob.job_id)
+      setJobs((prev) => [res.job, ...prev.filter((job) => job.job_id !== res.job.job_id)])
+      setActionMsg('Deployment started. Progress and logs will keep updating below.')
+    } catch (e: any) {
+      setActionMsg(e.message || 'Failed to deploy fine-tuned model.')
+    } finally {
+      setDeploying(false)
     }
-  }
-
-  const handleOpenColab = () => {
-    window.open('https://colab.research.google.com/', '_blank', 'noopener,noreferrer')
   }
 
   if (loading) return <div style={{ color: 'var(--text-tertiary)', padding: 40, textAlign: 'center' }}>Loading fine-tune data...</div>
   if (error) return <div className="card" style={{ padding: 24, maxWidth: 900 }}>{error}</div>
 
   return (
-    <div style={{ maxWidth: 900 }}>
+    <div style={{ maxWidth: 960 }}>
       <div className="card" style={{ padding: 24, marginBottom: 16 }}>
         <h1 style={{ fontSize: 22, fontWeight: 500, marginBottom: 8 }}>Fine-tune</h1>
-        <p style={{ color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-          Borderline clusters can export supervised training data, generate a Colab notebook, and later be registered as fine-tuned local routing targets.
+        <p style={{ color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: 12 }}>
+          Start remote fine-tuning from inside AgentShrink, keep the job running in the background, and only deploy/register the model after training completes successfully.
         </p>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+          This machine has no local GPU, so training runs on the backend you choose below. Job status is stored on disk, so you can refresh the page or reopen the browser without losing progress.
+        </div>
       </div>
 
       {candidates.length === 0 ? (
         <div className="card" style={{ padding: 24 }}>
-          <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 8 }}>
-            No fine-tune candidates right now
-          </div>
+          <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 8 }}>No fine-tune candidates right now</div>
           <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-            A full evaluator-backed report would usually produce more meaningful fine-tune candidates than heuristic mode.
+            Run analysis again after collecting more calls, or use a fuller evaluator-backed report to produce more meaningful fine-tune candidates.
           </div>
         </div>
       ) : (
@@ -126,176 +178,288 @@ export default function FinetunePage() {
             <div style={{ padding: '14px 20px', borderBottom: '0.5px solid var(--border)', fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)' }}>
               Fine-tune candidates
             </div>
-            {candidates.map((cluster: any) => (
-              <div
-                key={cluster.cluster_id}
-                onClick={() => setSelected(cluster.cluster_id)}
-                style={{
-                  padding: '14px 20px',
-                  borderBottom: '0.5px solid var(--border)',
-                  cursor: 'pointer',
-                  background: selected === cluster.cluster_id ? 'var(--bg-secondary)' : 'transparent',
-                }}
-              >
-                <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 6 }}>
-                  {cluster.cluster_name}
+            {candidates.map((cluster: any) => {
+              const clusterJob = jobs.find((job) => Number(job.cluster_id) === Number(cluster.cluster_id))
+              return (
+                <div
+                  key={cluster.cluster_id}
+                  onClick={() => setSelectedClusterId(cluster.cluster_id)}
+                  style={{
+                    padding: '14px 20px',
+                    borderBottom: '0.5px solid var(--border)',
+                    cursor: 'pointer',
+                    background: selectedClusterId === cluster.cluster_id ? 'var(--bg-secondary)' : 'transparent',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 6 }}>
+                    <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>{cluster.cluster_name}</div>
+                    {clusterJob && (
+                      <span style={badgeStyle(clusterJob.status)}>
+                        {prettyJobStatus(clusterJob.status)}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                    Base suggestion: {cluster.fine_tune_base_model}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                    Current score: {Math.round((cluster.best_score ?? 0) * 100)}% - cluster size: {cluster.cluster_size}
+                  </div>
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>
-                  Base model: {cluster.fine_tune_base_model}
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                  Current score: {Math.round((cluster.best_score ?? 0) * 100)}% - cluster size: {cluster.cluster_size}
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
 
           {selectedCluster && (
-            <div className="card" style={{ padding: 24, marginBottom: 16 }}>
-              <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 12 }}>
-                Selected cluster: {selectedCluster.cluster_name}
-              </div>
-
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
-                <button
-                  onClick={handleExport}
-                  style={{
-                    background: '#1D9E75', color: 'white', border: 'none',
-                    borderRadius: 8, padding: '8px 14px', fontSize: 12, cursor: 'pointer',
-                  }}
-                >
-                  Export training data
-                </button>
-                <button
-                  onClick={handleCopyRecommendedName}
-                  style={{
-                    background: 'transparent', color: 'var(--text-primary)', border: '0.5px solid var(--border)',
-                    borderRadius: 8, padding: '8px 14px', fontSize: 12, cursor: 'pointer',
-                  }}
-                >
-                  Copy recommended model name
-                </button>
-                <button
-                  onClick={handleOpenColab}
-                  style={{
-                    background: 'transparent', color: 'var(--text-primary)', border: '0.5px solid var(--border)',
-                    borderRadius: 8, padding: '8px 14px', fontSize: 12, cursor: 'pointer',
-                  }}
-                >
-                  Open Colab
-                </button>
-              </div>
-
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: 12 }}>
-                Recommended Ollama model name: <code>{recommendedModelName}</code>
-                <br />
-                Recommended display name: <code>{recommendedDisplayName}</code>
-                <br />
-                AgentShrink can open Colab for you, but it cannot sign in to Google or upload the notebook automatically.
-              </div>
-
-              {exportResult && (
-                <div style={{ background: 'var(--bg-secondary)', borderRadius: 8, padding: '12px 14px', marginBottom: 12 }}>
-                  <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 6 }}>
-                    Generated training assets
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-                    Dataset: <code>{exportResult.dataset_path}</code>
-                    <br />
-                    Notebook: <code>{exportResult.notebook_path}</code>
-                    <br />
-                    Next step: click <strong>Open Colab</strong>, then upload or open that notebook in your browser session and run all cells.
-                  </div>
+            <>
+              <div className="card" style={{ padding: 24, marginBottom: 16 }}>
+                <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 12 }}>Training backend</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, marginBottom: 18 }}>
+                  {backends.map((backend) => (
+                    <button
+                      key={backend.id}
+                      onClick={() => setSelectedBackend(backend.id)}
+                      style={{
+                        textAlign: 'left',
+                        padding: 16,
+                        borderRadius: 12,
+                        border: selectedBackend === backend.id ? '1px solid #7F77DD' : '0.5px solid var(--border)',
+                        background: selectedBackend === backend.id ? 'rgba(127,119,221,0.08)' : 'var(--bg-primary)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                        <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)' }}>{backend.label}</div>
+                        {backend.recommended && (
+                          <span style={{ fontSize: 10, color: '#1D9E75', fontWeight: 600 }}>recommended</span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>{backend.subtitle}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                        {backend.time} - {backend.cost}
+                      </div>
+                      <div style={{ fontSize: 12, color: backend.configured ? '#1D9E75' : '#D85A30' }}>
+                        {backend.configured ? 'Credentials detected' : backend.setup_note}
+                      </div>
+                    </button>
+                  ))}
                 </div>
-              )}
 
-              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 8 }}>
-                Register fine-tuned model later
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, alignItems: 'center' }}>
-                <input
-                  value={registerModel}
-                  onChange={e => setRegisterModel(e.target.value)}
-                  placeholder="Ollama model name"
-                  style={{ padding: '10px 12px', borderRadius: 8, border: '0.5px solid var(--border)', background: 'var(--bg-primary)' }}
-                />
-                <input
-                  value={registerDisplay}
-                  onChange={e => setRegisterDisplay(e.target.value)}
-                  placeholder="Display name"
-                  style={{ padding: '10px 12px', borderRadius: 8, border: '0.5px solid var(--border)', background: 'var(--bg-primary)' }}
-                />
-                <button
-                  onClick={handleRegister}
-                  style={{
-                    background: '#7F77DD', color: 'white', border: 'none',
-                    borderRadius: 8, padding: '10px 14px', fontSize: 12, cursor: 'pointer',
-                  }}
-                >
-                  Register model
-                </button>
-              </div>
-
-              {actionMsg && (
-                <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-                  {actionMsg}
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 12, marginBottom: 14 }}>
+                  <label style={fieldLabelStyle}>
+                    Model
+                    <select value={baseModel} onChange={(e) => setBaseModel(e.target.value)} style={fieldInputStyle}>
+                      {backendModelOptions.map((model: any) => (
+                        <option key={model.id} value={model.id}>
+                          {model.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label style={fieldLabelStyle}>
+                    Epochs
+                    <input type="number" min={1} max={8} value={epochs} onChange={(e) => setEpochs(Number(e.target.value || 2))} style={fieldInputStyle} />
+                  </label>
+                  <label style={fieldLabelStyle}>
+                    Learning rate
+                    <input value={learningRate} onChange={(e) => setLearningRate(e.target.value)} style={fieldInputStyle} />
+                  </label>
                 </div>
-              )}
 
-              <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-                Available Ollama models right now: {ollamaModels.length ? ollamaModels.join(', ') : 'none detected'}
-                <br />
-                Ollama models directory: <code>{modelsDir || 'Unavailable'}</code>
-                <br />
-                Register only after the fine-tuned model appears in <code>ollama list</code>.
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
+                  <button onClick={handleStartTraining} disabled={!canStart || starting} style={primaryButtonStyle(!canStart || starting)}>
+                    {starting ? 'Starting...' : 'Start training'}
+                  </button>
+                  <button onClick={handleStopTraining} disabled={!canStop} style={secondaryButtonStyle(!canStop)}>
+                    Stop training
+                  </button>
+                  <button onClick={handleDeploy} disabled={!canDeploy || deploying} style={secondaryButtonStyle(!canDeploy || deploying)}>
+                    {deploying ? 'Deploying...' : 'Deploy & register model'}
+                  </button>
+                  {deployed && (
+                    <span style={{ fontSize: 12, color: '#1D9E75', fontWeight: 500 }}>
+                      Fine-tuned model active
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+                  Selected cluster: <code>{selectedCluster.cluster_name}</code>
+                  <br />
+                  Registering stays disabled until training completes. Deployment creates the Ollama model on this same machine and registers it for routing automatically.
+                </div>
+
+                {actionMsg && (
+                  <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+                    {actionMsg}
+                  </div>
+                )}
               </div>
-            </div>
+
+              <div className="card" style={{ padding: 24, marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 12 }}>
+                  <div style={{ fontSize: 15, fontWeight: 500 }}>Training status</div>
+                  {latestJob ? <span style={badgeStyle(latestJob.status)}>{prettyJobStatus(latestJob.status)}</span> : null}
+                </div>
+
+                {latestJob ? (
+                  <>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                      {latestJob.phase || 'Queued'}
+                    </div>
+                    <div style={{ width: '100%', height: 10, background: 'var(--bg-secondary)', borderRadius: 999, overflow: 'hidden', marginBottom: 12 }}>
+                      <div style={{ width: `${Math.max(0, Math.min(100, latestJob.progress || 0))}%`, height: '100%', background: '#1D9E75' }} />
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
+                      <Stat label="Backend" value={latestJob.backend} />
+                      <Stat label="Samples" value={String(latestJob.sample_count || 0)} />
+                      <Stat label="Recommended model" value={latestJob.recommended_model_name} />
+                      <Stat
+                        label="Post-train accuracy"
+                        value={latestJob.result?.post_train_accuracy ? `${latestJob.result.post_train_accuracy}%` : 'Pending'}
+                      />
+                    </div>
+
+                    <div style={{ height: 220, marginBottom: 16 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={(latestJob.metrics || []).map((metric: any, index: number) => ({ ...metric, idx: index + 1 }))}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                          <XAxis dataKey="idx" tick={{ fill: '#8A8177', fontSize: 11 }} />
+                          <YAxis tick={{ fill: '#8A8177', fontSize: 11 }} width={40} />
+                          <Tooltip />
+                          <Line type="monotone" dataKey="loss" stroke="#7F77DD" dot={false} strokeWidth={2} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    <div style={{ background: 'var(--bg-secondary)', borderRadius: 10, padding: 12, maxHeight: 220, overflow: 'auto', fontFamily: 'monospace', fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
+                      {(latestJob.logs || []).length
+                        ? latestJob.logs.map((log: any, index: number) => `[${log.timestamp}] ${log.message}`).join('\n')
+                        : 'No logs yet.'}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+                    No training job started for this cluster yet.
+                  </div>
+                )}
+              </div>
+
+              <div className="card" style={{ padding: 24 }}>
+                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 10 }}>
+                  Training example preview
+                </div>
+                {previewLoading ? (
+                  <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>Loading preview...</div>
+                ) : preview?.examples?.length ? (
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    {preview.examples.map((ex: any, i: number) => (
+                      <div key={i} style={{ background: 'var(--bg-secondary)', borderRadius: 8, padding: '12px 14px' }}>
+                        <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 6 }}>
+                          {ex.node_name || 'node'}
+                        </div>
+                        <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>Prompt</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', marginBottom: 10 }}>
+                          {ex.prompt}
+                        </div>
+                        <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>Reference response</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
+                          {ex.response}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>No preview data available.</div>
+                )}
+              </div>
+            </>
           )}
-
-          <div className="card" style={{ padding: 24 }}>
-            <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 10 }}>
-              Training example preview
-            </div>
-            {previewLoading ? (
-              <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>Loading preview...</div>
-            ) : preview?.examples?.length ? (
-              <div style={{ display: 'grid', gap: 10 }}>
-                {preview.examples.map((ex: any, i: number) => (
-                  <div key={i} style={{ background: 'var(--bg-secondary)', borderRadius: 8, padding: '12px 14px' }}>
-                    <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 6 }}>
-                      {ex.node_name || 'node'}
-                    </div>
-                    <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>Prompt</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', marginBottom: 10 }}>
-                      {ex.prompt}
-                    </div>
-                    <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>Reference response</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
-                      {ex.response}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>No preview data available.</div>
-            )}
-          </div>
         </>
       )}
     </div>
   )
 }
 
-function buildRecommendedModelName(clusterName?: string) {
-  const rawName = String(clusterName || 'cluster').trim().toLowerCase()
-  const slug = rawName.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
-  return `agentshrink-${slug || 'cluster'}-ft`
+function latestJobInFlight(job: any) {
+  return job && ['queued', 'running', 'deploying'].includes(job.status)
 }
 
-function buildRecommendedDisplayName(clusterName?: string) {
-  const parts = String(clusterName || 'Cluster')
-    .split(/[_\-\s]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-  return `${parts.join(' ') || 'Cluster'} FT`
+function prettyJobStatus(status: string) {
+  return {
+    queued: 'queued',
+    running: 'training',
+    completed: 'ready to deploy',
+    deploying: 'deploying',
+    deployed: 'active',
+    failed: 'failed',
+    stopped: 'stopped',
+  }[status] || status
+}
+
+function badgeStyle(status: string) {
+  const palette: Record<string, any> = {
+    queued: { background: '#F0EBDC', color: '#8A6C1F' },
+    running: { background: '#E5F4EF', color: '#1D9E75' },
+    completed: { background: '#EEF0FF', color: '#6258CC' },
+    deploying: { background: '#FFF1E2', color: '#D85A30' },
+    deployed: { background: '#E5F4EF', color: '#1D9E75' },
+    failed: { background: '#FCEAEA', color: '#C44B4B' },
+    stopped: { background: '#F4F0EA', color: '#8A8177' },
+  }
+  return {
+    display: 'inline-flex',
+    padding: '4px 8px',
+    borderRadius: 999,
+    fontSize: 11,
+    fontWeight: 500,
+    ...(palette[status] || palette.stopped),
+  }
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ background: 'var(--bg-secondary)', borderRadius: 10, padding: 12 }}>
+      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500, wordBreak: 'break-word' }}>{value}</div>
+    </div>
+  )
+}
+
+const fieldLabelStyle: CSSProperties = {
+  display: 'grid',
+  gap: 6,
+  fontSize: 12,
+  color: 'var(--text-secondary)',
+}
+
+const fieldInputStyle: CSSProperties = {
+  padding: '10px 12px',
+  borderRadius: 8,
+  border: '0.5px solid var(--border)',
+  background: 'var(--bg-primary)',
+}
+
+function primaryButtonStyle(disabled: boolean): CSSProperties {
+  return {
+    background: disabled ? '#BEB9F0' : '#7F77DD',
+    color: 'white',
+    border: 'none',
+    borderRadius: 8,
+    padding: '10px 14px',
+    fontSize: 12,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+  }
+}
+
+function secondaryButtonStyle(disabled: boolean): CSSProperties {
+  return {
+    background: 'transparent',
+    color: disabled ? 'var(--text-tertiary)' : 'var(--text-primary)',
+    border: '0.5px solid var(--border)',
+    borderRadius: 8,
+    padding: '10px 14px',
+    fontSize: 12,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+  }
 }

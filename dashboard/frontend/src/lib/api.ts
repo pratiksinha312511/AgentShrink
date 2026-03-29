@@ -56,6 +56,51 @@ export async function exportFineTuneData(clusterId: number) {
   return readJsonOrThrow(r, 'Failed to export fine-tune data')
 }
 
+export async function fetchFineTuneBackends() {
+  const r = await fetch(`${API}/api/finetune/backends`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch fine-tune backends')
+}
+
+export async function fetchFineTuneJobs() {
+  const r = await fetch(`${API}/api/finetune/jobs`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch fine-tune jobs')
+}
+
+export async function fetchFineTuneJob(jobId: string) {
+  const r = await fetch(`${API}/api/finetune/jobs/${jobId}`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch fine-tune job')
+}
+
+export async function startFineTuneJob(payload: {
+  cluster_id: number
+  backend: string
+  config?: Record<string, any>
+  hf_token?: string
+}) {
+  const r = await fetch(`${API}/api/finetune/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return readJsonOrThrow(r, 'Failed to start fine-tune job')
+}
+
+export async function stopFineTuneJob(jobId: string) {
+  const r = await fetch(`${API}/api/finetune/jobs/${jobId}/stop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  return readJsonOrThrow(r, 'Failed to stop fine-tune job')
+}
+
+export async function deployFineTuneJob(jobId: string) {
+  const r = await fetch(`${API}/api/finetune/jobs/${jobId}/deploy`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  return readJsonOrThrow(r, 'Failed to deploy fine-tuned model')
+}
+
 export async function registerFineTunedModel(clusterId: number, ollamaName: string, displayName: string) {
   const r = await fetch(`${API}/api/finetune/register`, {
     method: 'POST',
