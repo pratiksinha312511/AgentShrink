@@ -1,7 +1,7 @@
 'use client'
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { applyReport, createRoutingWebSocket, fetchAnalysisLogs, fetchReport } from '@/lib/api'
+import { applyReport, createRoutingWebSocket, fetchAnalysisLogs, fetchReport, fetchRoutingSimulation, rollbackRoutingConfig } from '@/lib/api'
 
 const REC_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   replace_now: { label: 'Replace now', color: '#27500A', bg: '#EAF3DE' },
@@ -22,7 +22,7 @@ function QualityBar({ score }: { score: number }) {
   )
 }
 
-export default function ReportPage() {
+function ReportPageContent() {
   const searchParams = useSearchParams()
   const clusterIdParam = searchParams.get('cluster_id')
   const targetedClusterId = clusterIdParam ? Number(clusterIdParam) : undefined
@@ -32,6 +32,9 @@ export default function ReportPage() {
   const [expanded, setExpanded] = useState<number | null>(null)
   const [applying, setApplying] = useState(false)
   const [applyMsg, setApplyMsg] = useState('')
+  const [simulation, setSimulation] = useState<any>(null)
+  const [simulationError, setSimulationError] = useState('')
+  const [rollingBack, setRollingBack] = useState(false)
   const [logLines, setLogLines] = useState<Array<{ line: string; stream: string; timestamp?: number }>>([])
   const [analysisRunning, setAnalysisRunning] = useState(false)
   const terminalEndRef = useRef<HTMLDivElement | null>(null)
@@ -41,6 +44,13 @@ export default function ReportPage() {
       .then(setReport)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
+  }, [targetedClusterId])
+
+  useEffect(() => {
+    if (Number.isFinite(targetedClusterId)) return
+    fetchRoutingSimulation()
+      .then(setSimulation)
+      .catch(e => setSimulationError(e.message))
   }, [targetedClusterId])
 
   useEffect(() => {
@@ -100,10 +110,25 @@ export default function ReportPage() {
     try {
       const res = await applyReport()
       setApplyMsg(res?.message ?? 'Report applied.')
+      fetchRoutingSimulation().then(setSimulation).catch(() => {})
     } catch {
       setApplyMsg('Failed to apply report.')
     } finally {
       setApplying(false)
+    }
+  }
+
+  const handleRollback = async () => {
+    setRollingBack(true)
+    setApplyMsg('')
+    try {
+      const res = await rollbackRoutingConfig()
+      setApplyMsg(res?.message ?? 'Routing config rolled back.')
+      fetchRoutingSimulation().then(setSimulation).catch(() => {})
+    } catch {
+      setApplyMsg('Failed to rollback routing config.')
+    } finally {
+      setRollingBack(false)
     }
   }
 
@@ -118,17 +143,32 @@ export default function ReportPage() {
             Generated at {report?.generated_at?.slice(0, 10)}
           </div>
         </div>
-        <button
-          onClick={handleApply}
-          disabled={applying}
-          style={{
-            background: '#1D9E75', color: 'white', border: 'none',
-            borderRadius: 8, padding: '8px 18px', fontSize: 12,
-            fontWeight: 500, cursor: 'pointer', opacity: applying ? 0.7 : 1,
-          }}
-        >
-          {applying ? 'Applying...' : 'Apply Report ->'}
-        </button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {!Number.isFinite(targetedClusterId) && (
+            <button
+              onClick={handleRollback}
+              disabled={rollingBack || !(simulation?.has_backup)}
+              style={{
+                background: 'transparent', color: 'var(--text-primary)', border: '0.5px solid var(--border)',
+                borderRadius: 8, padding: '8px 14px', fontSize: 12,
+                fontWeight: 500, cursor: 'pointer', opacity: rollingBack || !(simulation?.has_backup) ? 0.6 : 1,
+              }}
+            >
+              {rollingBack ? 'Rolling back...' : 'Rollback'}
+            </button>
+          )}
+          <button
+            onClick={handleApply}
+            disabled={applying}
+            style={{
+              background: '#1D9E75', color: 'white', border: 'none',
+              borderRadius: 8, padding: '8px 18px', fontSize: 12,
+              fontWeight: 500, cursor: 'pointer', opacity: applying ? 0.7 : 1,
+            }}
+          >
+            {applying ? 'Applying...' : 'Apply Report ->'}
+          </button>
+        </div>
       </div>
 
       {(heuristic || applyMsg) && (
@@ -159,6 +199,75 @@ export default function ReportPage() {
           <div className="metric-label">clusters {'->'} replace now</div>
         </div>
       </div>
+
+      {!Number.isFinite(targetedClusterId) && (
+        <div className="card" style={{ padding: 16, marginBottom: 20 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 10 }}>
+            Routing simulation
+          </div>
+          {simulationError ? (
+            <div style={{ fontSize: 12, color: '#A32D2D' }}>{simulationError}</div>
+          ) : simulation ? (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 14 }}>
+                <div className="metric-card">
+                  <div className="metric-num">{simulation.summary.changed}</div>
+                  <div className="metric-label">changed</div>
+                </div>
+                <div className="metric-card">
+                  <div className="metric-num">{simulation.summary.added}</div>
+                  <div className="metric-label">added</div>
+                </div>
+                <div className="metric-card">
+                  <div className="metric-num">{simulation.summary.unchanged}</div>
+                  <div className="metric-label">unchanged</div>
+                </div>
+                <div className="metric-card">
+                  <div className="metric-num">{simulation.has_backup ? 'Yes' : 'No'}</div>
+                  <div className="metric-label">rollback available</div>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {(simulation.changes || []).filter((c: any) => c.change_type !== 'unchanged').slice(0, 8).map((change: any) => (
+                  <div key={change.cluster_id} style={{ background: 'var(--bg-secondary)', borderRadius: 8, padding: '10px 12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{change.cluster_name}</div>
+                      <span className="badge" style={{
+                        background: change.change_type === 'changed' ? '#FAEEDA' : '#EEEDFE',
+                        color: change.change_type === 'changed' ? '#633806' : '#3C3489',
+                      }}>
+                        {change.change_type}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+                      <div>Before: <code>{change.before ? `${change.before.provider}:${change.before.model}` : 'none'}</code></div>
+                      <div>After: <code>{change.after ? `${change.after.provider}:${change.after.model}` : 'none'}</code></div>
+                    </div>
+                    {change.explanation && (
+                      <div style={{
+                        marginTop: 8,
+                        fontSize: 12,
+                        color: 'var(--text-secondary)',
+                        lineHeight: 1.6,
+                        overflowWrap: 'anywhere',
+                      }}>
+                        Why: {change.explanation}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {(simulation.changes || []).filter((c: any) => c.change_type !== 'unchanged').length === 0 && (
+                  <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+                    Current routing config already matches the proposed report output.
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Loading simulation...</div>
+          )}
+        </div>
+      )}
 
       <div className="card" style={{ overflow: 'hidden' }}>
         <div style={{ padding: '14px 20px', borderBottom: '0.5px solid var(--border)', fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)' }}>
@@ -207,6 +316,19 @@ export default function ReportPage() {
               {isExpanded && (
                 <div style={{ padding: '16px 20px', background: 'var(--bg-secondary)', borderBottom: '0.5px solid var(--border)' }}>
                   <div style={{ marginBottom: 14 }}>
+                    {cluster.recommendation_explanation && (
+                      <div style={{
+                        background: rec.bg,
+                        color: rec.color,
+                        borderRadius: 8,
+                        padding: '10px 12px',
+                        fontSize: 12,
+                        lineHeight: 1.6,
+                        marginBottom: 10,
+                      }}>
+                        Why: {cluster.recommendation_explanation}
+                      </div>
+                    )}
                     <div style={{
                       background: 'var(--bg-primary)', borderRadius: 6,
                       padding: '10px 12px', border: '0.5px solid var(--border)', marginBottom: 10,
@@ -346,5 +468,13 @@ export default function ReportPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function ReportPage() {
+  return (
+    <Suspense fallback={<div style={{ color: 'var(--text-tertiary)', padding: 40, textAlign: 'center' }}>Loading report...</div>}>
+      <ReportPageContent />
+    </Suspense>
   )
 }

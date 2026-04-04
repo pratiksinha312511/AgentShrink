@@ -57,6 +57,7 @@ if modal is not None:  # pragma: no branch
 
         base_model = remote_config["base_model"]
         ollama_base_model = remote_config["deploy_base_model"]
+        hf_token = remote_config.get("hf_token") or None
         epochs = int(remote_config.get("epochs", 2))
         batch_size = int(remote_config.get("batch_size", 2))
         lr = float(remote_config.get("learning_rate", 2e-4))
@@ -76,12 +77,13 @@ if modal is not None:  # pragma: no branch
             bnb_4bit_compute_dtype=torch.float16,
             bnb_4bit_use_double_quant=True,
         )
-        tokenizer = AutoTokenizer.from_pretrained(base_model)
+        tokenizer = AutoTokenizer.from_pretrained(base_model, token=hf_token)
         tokenizer.pad_token = tokenizer.eos_token
         model = AutoModelForCausalLM.from_pretrained(
             base_model,
             quantization_config=bnb_config,
             device_map="auto",
+            token=hf_token,
         )
         model = get_peft_model(
             model,

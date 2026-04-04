@@ -27,6 +27,9 @@ import pathlib
 import sqlite3
 import logging
 import os
+import urllib.request
+import urllib.error
+import urllib.parse
 from collections import deque
 import threading
 from typing import Optional
@@ -45,14 +48,17 @@ logger = logging.getLogger(__name__)
 
 # Paths — relative to project root
 PROJECT_ROOT  = pathlib.Path(__file__).parent.parent.parent
-DB_PATH       = pathlib.Path.home() / ".agentshrink" / "logs.db"
+DB_PATH       = pathlib.Path(os.getenv("AGENTSHRINK_DB_PATH", "~/.agentshrink/logs.db")).expanduser()
 OUTPUT_DIR    = PROJECT_ROOT / ".agentshrink_output"
 SYS_PATH_ROOT = str(PROJECT_ROOT)
+ROUTING_CONFIG_PATH = OUTPUT_DIR / "routing_config.json"
+ROUTING_HISTORY_DIR = OUTPUT_DIR / "routing_history"
 
 import sys
 sys.path.insert(0, SYS_PATH_ROOT)
 
 from agentshrink.logger import _estimate_cost
+from agentshrink.app_setup import generate_project_token, load_product_config, load_runtime_state, run_doctor_checks, save_product_config
 from agentshrink.model_catalog import (
     choose_best_model,
     cluster_task_kind,
@@ -74,8 +80,16 @@ from agentshrink.finetune.runtime import (
     choose_default_model,
     deploy_to_ollama,
     evaluate_deployed_model,
+    lookup_backend_model,
     write_training_artifacts,
 )
+
+product_config = load_product_config()
+frontend_port = int((product_config.get("dashboard_frontend") or {}).get("port", 3000))
+allowed_origins = [
+    f"http://localhost:{frontend_port}",
+    f"http://127.0.0.1:{frontend_port}",
+]
 
 
 def _load_cluster_info() -> dict | None:
@@ -87,11 +101,264 @@ def _load_cluster_info() -> dict | None:
 
 
 def _load_existing_routing_config() -> dict:
-    path = OUTPUT_DIR / "routing_config.json"
-    if not path.exists():
+    if not ROUTING_CONFIG_PATH.exists():
         return {}
-    with open(path, encoding="utf-8") as f:
+    with open(ROUTING_CONFIG_PATH, encoding="utf-8") as f:
         return json.load(f)
+
+
+def _score_pct(value: float | int | None) -> str:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return "-"
+    return f"{round(numeric * 100)}%"
+
+
+def _route_label(route: dict | None) -> str:
+    if not route:
+        return "none"
+    provider = route.get("provider") or "unknown"
+    display = route.get("display") or route.get("model") or "unknown"
+    source = route.get("source")
+    if source == "fine_tuned":
+        return f"{display} on {provider} (fine-tuned)"
+    if source == "fine_tune_pending":
+        return f"{display} on {provider} (fine-tune pending)"
+    if route.get("local"):
+        return f"{display} on {provider} (local)"
+    return f"{display} on {provider}"
+
+
+def _cluster_recommendation_explanation(cluster: dict, route: dict | None = None) -> str:
+    recommendation = str(cluster.get("recommendation") or "keep_llm")
+    best_score = cluster.get("best_score")
+    incumbent_score = cluster.get("incumbent_score")
+    best_model = cluster.get("best_slm_display") or cluster.get("best_slm") or "the proposed model"
+    best_provider = cluster.get("best_provider") or route.get("provider") if route else cluster.get("best_provider")
+    best_provider = best_provider or "the selected provider"
+    cluster_size = int(cluster.get("cluster_size") or 0)
+    size_text = f" across {cluster_size} logged calls" if cluster_size else ""
+
+    if recommendation == "replace_now":
+        if incumbent_score is not None:
+            return (
+                f"Replace now because {best_model} on {best_provider} scored {_score_pct(best_score)}"
+                f" versus the incumbent at {_score_pct(incumbent_score)}{size_text}."
+            )
+        return (
+            f"Replace now because {best_model} on {best_provider} was the strongest safe local option"
+            f"{size_text}."
+        )
+
+    if recommendation == "fine_tune":
+        base_model = cluster.get("fine_tune_base_model") or cluster.get("best_slm_display") or cluster.get("best_slm") or "the selected base model"
+        if incumbent_score is not None:
+            return (
+                f"Fine-tune instead of replacing immediately because {base_model} is promising at {_score_pct(best_score)},"
+                f" but the incumbent is still at {_score_pct(incumbent_score)}{size_text}."
+            )
+        return (
+            f"Fine-tune because the current best local base, {base_model}, looks close but not safe enough"
+            f" to replace production traffic yet{size_text}."
+        )
+
+    if cluster.get("best_slm_display") and cluster.get("best_provider") not in {None, "", "ollama"}:
+        return (
+            f"Keep on API because the best-scoring candidate is still remote ({cluster.get('best_slm_display')} on"
+            f" {cluster.get('best_provider')}), so AgentShrink avoids calling this a local replacement."
+        )
+
+    if incumbent_score is not None and best_score is not None:
+        return (
+            f"Keep on API because the current route still looks safer: incumbent {_score_pct(incumbent_score)}"
+            f" versus proposed {_score_pct(best_score)}{size_text}."
+        )
+
+    return "Keep on API because no local candidate has cleared the confidence bar strongly enough yet."
+
+
+def _routing_change_explanation(*, change_type: str, cluster: dict | None, before: dict | None, after: dict | None) -> str:
+    cluster = cluster or {}
+    recommendation = str(cluster.get("recommendation") or "")
+    cluster_reason = _cluster_recommendation_explanation(cluster, after or before)
+
+    if after and after.get("source") == "fine_tuned":
+        if change_type == "unchanged":
+            return f"Keeping the existing fine-tuned route: {_route_label(after)} remains assigned to this cluster."
+        return f"Preserving the fine-tuned route {_route_label(after)} instead of replacing it with a generic report route."
+
+    if after and after.get("source") == "fine_tune_pending":
+        return (
+            f"Pointing this cluster at {_route_label(after)} as a temporary fine-tune candidate."
+            f" {cluster_reason}"
+        )
+
+    if change_type == "added":
+        return f"Adding a new route to {_route_label(after)}. {cluster_reason}"
+
+    if change_type == "removed":
+        return f"Removing the existing route {_route_label(before)} because the current report no longer proposes it."
+
+    if change_type == "changed":
+        return (
+            f"Changing the route from {_route_label(before)} to {_route_label(after)}."
+            f" {cluster_reason}"
+        )
+
+    if recommendation:
+        return f"No change needed. {cluster_reason}"
+
+    return "No change needed because the current routing config already matches the proposed report."
+
+
+def _enrich_report_payload(report: dict) -> dict:
+    clusters = report.get("clusters") or []
+    enriched_clusters = []
+    for cluster in clusters:
+        cluster_copy = dict(cluster)
+        preview_route = None
+        if cluster_copy.get("recommendation") in {"replace_now", "fine_tune"}:
+            preview_route = {
+                "provider": cluster_copy.get("best_provider"),
+                "model": cluster_copy.get("best_slm"),
+                "display": cluster_copy.get("best_slm_display"),
+                "local": cluster_copy.get("best_provider") == "ollama",
+            }
+        cluster_copy["recommendation_explanation"] = _cluster_recommendation_explanation(cluster_copy, preview_route)
+        enriched_clusters.append(cluster_copy)
+
+    report_copy = dict(report)
+    report_copy["clusters"] = enriched_clusters
+    return report_copy
+
+
+def _save_routing_backup(payload: dict, *, reason: str) -> pathlib.Path:
+    ROUTING_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    path = ROUTING_HISTORY_DIR / f"routing_config_{stamp}_{reason}.json"
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+    return path
+
+
+def _latest_routing_backup() -> pathlib.Path | None:
+    if not ROUTING_HISTORY_DIR.exists():
+        return None
+    backups = sorted(ROUTING_HISTORY_DIR.glob("routing_config_*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return backups[0] if backups else None
+
+
+def _load_report_for_apply() -> tuple[dict, dict]:
+    report_path = OUTPUT_DIR / "replaceability_report.json"
+    cluster_info = _load_cluster_info()
+    if not cluster_info:
+        raise HTTPException(status_code=400, detail="No analysis output found yet.")
+
+    if report_path.exists():
+        with open(report_path, encoding="utf-8") as f:
+            report = json.load(f)
+    else:
+        report = _heuristic_report_from_clusters(cluster_info)
+    return report, cluster_info
+
+
+def _build_routing_payload(report: dict) -> dict:
+    catalog = load_model_catalog(OUTPUT_DIR)
+    existing = _load_existing_routing_config()
+    existing_routing = existing.get("routing", existing)
+    routing = {}
+    for cluster in report.get("clusters", []):
+        rec = cluster.get("recommendation")
+        cid = str(cluster["cluster_id"])
+        existing_cfg = existing_routing.get(cid, {})
+
+        if existing_cfg.get("source") == "fine_tuned" and existing_cfg.get("model"):
+            routing[cid] = {
+                "name": cluster["cluster_name"],
+                "provider": existing_cfg.get("provider", "ollama"),
+                "model": existing_cfg.get("model"),
+                "display": existing_cfg.get("display") or existing_cfg.get("model"),
+                "local": True,
+                "source": "fine_tuned",
+                "quality_score": existing_cfg.get("quality_score", cluster.get("best_score", 0.0)),
+            }
+            continue
+
+        evaluated_candidates = cluster.get("evaluations", []) or []
+        if rec in {"replace_now", "fine_tune"} and evaluated_candidates:
+            top_candidate = next(
+                (
+                    ev for ev in evaluated_candidates
+                    if ev.get("provider") == cluster.get("best_provider")
+                    and ev.get("slm_name") == cluster.get("best_slm")
+                ),
+                None,
+            )
+            if top_candidate is None:
+                top_candidate = sorted(
+                    evaluated_candidates,
+                    key=lambda ev: (
+                        -float(ev.get("selection_score", 0.0)),
+                        -float(ev.get("composite_score", 0.0)),
+                        float(ev.get("cost_in_per_1k", 0.0)) + float(ev.get("cost_out_per_1k", 0.0)),
+                    ),
+                )[0]
+            routing[cid] = {
+                "name": cluster["cluster_name"],
+                "provider": top_candidate.get("provider", cluster.get("best_provider", "ollama")),
+                "model": top_candidate.get("slm_name") or cluster.get("best_slm") or "fallback",
+                "display": top_candidate.get("slm_display") or cluster.get("best_slm_display") or "Fallback",
+                "local": bool(top_candidate.get("local", False)),
+                "source": "report",
+                "quality_score": top_candidate.get("composite_score", cluster.get("best_score", 0.0)),
+                "selection_score": top_candidate.get("selection_score", 0.0),
+            }
+            continue
+
+        if rec == "replace_now":
+            routing[cid] = {
+                "name": cluster["cluster_name"],
+                "provider": cluster.get("best_provider", "ollama"),
+                "model": cluster.get("best_slm") or "fallback",
+                "display": cluster.get("best_slm_display") or cluster.get("best_slm") or "Fallback",
+                "local": cluster.get("best_provider") == "ollama",
+                "source": "report",
+                "quality_score": cluster.get("best_score", 0.0),
+            }
+        elif rec == "fine_tune":
+            routing[cid] = {
+                "name": cluster["cluster_name"],
+                "provider": "ollama",
+                "model": cluster.get("fine_tune_base_model") or os.getenv("TARGET_AGENT_OLLAMA_MODEL", "llama3.2:3b"),
+                "display": f"{cluster.get('fine_tune_base_model') or os.getenv('TARGET_AGENT_OLLAMA_MODEL', 'llama3.2:3b')} (fine-tune candidate)",
+                "local": False,
+                "source": "fine_tune_pending",
+                "quality_score": cluster.get("best_score", 0.0),
+            }
+        else:
+            routing[cid] = {
+                "name": cluster["cluster_name"],
+                "provider": os.getenv("TARGET_AGENT_PROVIDER", "openai"),
+                "model": "fallback",
+                "display": "Fallback (kept on strong model)",
+                "local": False,
+                "source": "report",
+                "quality_score": cluster.get("best_score", 0.0),
+            }
+
+    return {
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "cluster_count": len(routing),
+        "routing": routing,
+        "manual_change_required": True,
+        "manual_integration": {
+            "replace_chat_model_with": "ShrinkLLM",
+            "example_provider": "shrink",
+            "demo_script": "venv\\Scripts\\python.exe target_agent\\run_shrink_demo.py",
+        },
+        "models_evaluated": [model["model_name"] for model in catalog.get("models", []) if model.get("enabled")],
+    }
 
 
 def _estimate_tokens_from_text(text: str) -> int:
@@ -143,18 +410,27 @@ def _heuristic_report_from_clusters(cluster_info: dict | None) -> dict:
         fine_tune_base_model = None
 
         if chosen_model:
-            best_slm = chosen_model["model_name"]
-            best_slm_display = chosen_model["display_name"]
-            best_provider = chosen_model["provider"]
-            if task_kind == "simple":
-                recommendation = "replace_now"
-                needs_fine_tuning = False
-            elif chosen_model.get("local"):
-                recommendation = "fine_tune"
-                needs_fine_tuning = True
-                fine_tune_base_model = chosen_model["model_name"]
+            chosen_is_local = bool(chosen_model.get("local"))
+
+            # Only local candidates should appear as replace/fine-tune targets.
+            # If the best available candidate is still a remote/cloud model
+            # (for example NVIDIA), the cluster should stay on the incumbent LLM.
+            if chosen_is_local:
+                best_slm = chosen_model["model_name"]
+                best_slm_display = chosen_model["display_name"]
+                best_provider = chosen_model["provider"]
+                if task_kind == "simple":
+                    recommendation = "replace_now"
+                    needs_fine_tuning = False
+                else:
+                    recommendation = "fine_tune"
+                    needs_fine_tuning = True
+                    fine_tune_base_model = chosen_model["model_name"]
             else:
-                recommendation = "keep_llm" if int(chosen_model.get("quality_tier", 0)) < 4 else "replace_now"
+                recommendation = "keep_llm"
+                best_slm = None
+                best_slm_display = None
+                best_provider = fallback_provider
 
         clusters.append({
             "cluster_id": int(cid),
@@ -297,6 +573,38 @@ def _prepare_finetune_payload(cluster_id: int):
         "dataset_path": dataset_path,
         "training_rows": training_rows,
     }
+
+
+def _validate_model_access(*, backend: str, model_id: str, hf_token: str | None) -> None:
+    model_info = lookup_backend_model(backend, model_id)
+    if not model_info:
+        raise HTTPException(status_code=400, detail=f"Model '{model_id}' is not available for backend '{backend}'.")
+
+    needs_hf = bool(model_info.get("requires_hf_token"))
+    token = (hf_token or os.getenv("HF_TOKEN", "")).strip()
+    if needs_hf and not token:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Model '{model_id}' requires Hugging Face gated access. "
+                "Add HF_TOKEN in Settings/.env and make sure that account has accepted the model license."
+            ),
+        )
+
+    if needs_hf:
+        try:
+            from huggingface_hub import HfApi
+
+            HfApi().model_info(model_id, token=token)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Could not validate Hugging Face access for '{model_id}'. "
+                    "Make sure your HF token is valid and that the account has access to the gated repo. "
+                    f"Details: {exc}"
+                ),
+            ) from exc
 
 
 def _run_finetune_job(job_id: str, backend: str, config: dict, training_rows: list[dict], hf_token: str | None = None):
@@ -580,7 +888,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -780,12 +1088,12 @@ async def get_report(cluster_id: int | None = None):
     if not report_path.exists():
         if cluster_id is not None:
             raise HTTPException(status_code=404, detail=f"No targeted report found yet for cluster {cluster_id}.")
-        return _heuristic_report_from_clusters(_load_cluster_info())
+        return _enrich_report_payload(_heuristic_report_from_clusters(_load_cluster_info()))
 
     with open(report_path) as f:
         report = json.load(f)
 
-    return report
+    return _enrich_report_payload(report)
 
 
 @app.get("/api/config")
@@ -824,121 +1132,106 @@ async def get_analysis_logs():
 @app.post("/api/apply-report")
 async def apply_report():
     """Persist an explicit routing_config.json from the current report."""
-    report_path = OUTPUT_DIR / "replaceability_report.json"
-    cluster_info = _load_cluster_info()
-    if not cluster_info:
-        raise HTTPException(status_code=400, detail="No analysis output found yet.")
-
-    if report_path.exists():
-        with open(report_path, encoding="utf-8") as f:
-            report = json.load(f)
-    else:
-        report = _heuristic_report_from_clusters(cluster_info)
-
-    catalog = load_model_catalog(OUTPUT_DIR)
+    report, _cluster_info = _load_report_for_apply()
+    config_payload = _build_routing_payload(report)
     existing = _load_existing_routing_config()
-    existing_routing = existing.get("routing", existing)
-    routing = {}
-    for cluster in report.get("clusters", []):
-        rec = cluster.get("recommendation")
-        cid = str(cluster["cluster_id"])
-        existing_cfg = existing_routing.get(cid, {})
+    if existing:
+        _save_routing_backup(existing, reason="preapply")
 
-        # Preserve previously registered fine-tuned routes across report refreshes.
-        if existing_cfg.get("source") == "fine_tuned" and existing_cfg.get("model"):
-            routing[cid] = {
-                "name": cluster["cluster_name"],
-                "provider": existing_cfg.get("provider", "ollama"),
-                "model": existing_cfg.get("model"),
-                "display": existing_cfg.get("display") or existing_cfg.get("model"),
-                "local": True,
-                "source": "fine_tuned",
-                "quality_score": existing_cfg.get("quality_score", cluster.get("best_score", 0.0)),
-            }
-            continue
-
-        evaluated_candidates = cluster.get("evaluations", []) or []
-        if rec in {"replace_now", "fine_tune"} and evaluated_candidates:
-            top_candidate = next(
-                (
-                    ev for ev in evaluated_candidates
-                    if ev.get("provider") == cluster.get("best_provider")
-                    and ev.get("slm_name") == cluster.get("best_slm")
-                ),
-                None,
-            )
-            if top_candidate is None:
-                top_candidate = sorted(
-                    evaluated_candidates,
-                    key=lambda ev: (
-                        -float(ev.get("selection_score", 0.0)),
-                        -float(ev.get("composite_score", 0.0)),
-                        float(ev.get("cost_in_per_1k", 0.0)) + float(ev.get("cost_out_per_1k", 0.0)),
-                    ),
-                )[0]
-            routing[cid] = {
-                "name": cluster["cluster_name"],
-                "provider": top_candidate.get("provider", cluster.get("best_provider", "ollama")),
-                "model": top_candidate.get("slm_name") or cluster.get("best_slm") or "fallback",
-                "display": top_candidate.get("slm_display") or cluster.get("best_slm_display") or "Fallback",
-                "local": bool(top_candidate.get("local", False)),
-                "source": "report",
-                "quality_score": top_candidate.get("composite_score", cluster.get("best_score", 0.0)),
-                "selection_score": top_candidate.get("selection_score", 0.0),
-            }
-            continue
-
-        if rec == "replace_now":
-            routing[cid] = {
-                "name": cluster["cluster_name"],
-                "provider": cluster.get("best_provider", "ollama"),
-                "model": cluster.get("best_slm") or "fallback",
-                "display": cluster.get("best_slm_display") or cluster.get("best_slm") or "Fallback",
-                "local": cluster.get("best_provider") == "ollama",
-                "source": "report",
-                "quality_score": cluster.get("best_score", 0.0),
-            }
-        elif rec == "fine_tune":
-            routing[cid] = {
-                "name": cluster["cluster_name"],
-                "provider": "ollama",
-                "model": cluster.get("fine_tune_base_model") or os.getenv("TARGET_AGENT_OLLAMA_MODEL", "llama3.2:3b"),
-                "display": f"{cluster.get('fine_tune_base_model') or os.getenv('TARGET_AGENT_OLLAMA_MODEL', 'llama3.2:3b')} (fine-tune candidate)",
-                "local": False,
-                "source": "fine_tune_pending",
-                "quality_score": cluster.get("best_score", 0.0),
-            }
-        else:
-            routing[cid] = {
-                "name": cluster["cluster_name"],
-                "provider": os.getenv("TARGET_AGENT_PROVIDER", "openai"),
-                "model": "fallback",
-                "display": "Fallback (kept on strong model)",
-                "local": False,
-                "source": "report",
-                "quality_score": cluster.get("best_score", 0.0),
-            }
-
-    config_payload = {
-        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "cluster_count": len(routing),
-        "routing": routing,
-        "manual_change_required": True,
-        "manual_integration": {
-            "replace_chat_model_with": "ShrinkLLM",
-            "example_provider": "shrink",
-            "demo_script": "venv\\Scripts\\python.exe target_agent\\run_shrink_demo.py",
-        },
-    }
-
-    with open(OUTPUT_DIR / "routing_config.json", "w", encoding="utf-8") as f:
+    with open(ROUTING_CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(config_payload, f, indent=2)
 
     return {
         "status": "ok",
         "message": "Report applied. routing_config.json saved.",
-        "cluster_count": len(routing),
+        "cluster_count": len(config_payload.get("routing", {})),
         "manual_change_required": True,
+    }
+
+
+@app.get("/api/routing/simulate")
+async def simulate_routing_apply():
+    report, _cluster_info = _load_report_for_apply()
+    report = _enrich_report_payload(report)
+    proposed = _build_routing_payload(report)
+    current = _load_existing_routing_config()
+    current_routing = current.get("routing", current) if isinstance(current, dict) else {}
+    proposed_routing = proposed.get("routing", {})
+    report_clusters = {
+        str(cluster.get("cluster_id")): cluster
+        for cluster in (report.get("clusters") or [])
+    }
+
+    all_ids = sorted(set(current_routing.keys()) | set(proposed_routing.keys()), key=lambda cid: int(cid))
+    changes = []
+    added = removed = changed = unchanged = 0
+    for cid in all_ids:
+        before = current_routing.get(cid)
+        after = proposed_routing.get(cid)
+        cluster = report_clusters.get(str(cid))
+        if before is None and after is not None:
+            change_type = "added"
+            added += 1
+        elif before is not None and after is None:
+            change_type = "removed"
+            removed += 1
+        elif before == after:
+            change_type = "unchanged"
+            unchanged += 1
+        else:
+            change_type = "changed"
+            changed += 1
+        changes.append({
+            "cluster_id": cid,
+            "cluster_name": (after or before or cluster or {}).get("name") or (cluster or {}).get("cluster_name") or f"cluster_{cid}",
+            "change_type": change_type,
+            "before": before,
+            "after": after,
+            "recommendation": (cluster or {}).get("recommendation"),
+            "recommendation_explanation": (cluster or {}).get("recommendation_explanation"),
+            "explanation": _routing_change_explanation(
+                change_type=change_type,
+                cluster=cluster,
+                before=before,
+                after=after,
+            ),
+        })
+
+    return {
+        "status": "ok",
+        "summary": {
+            "current_cluster_count": len(current_routing),
+            "proposed_cluster_count": len(proposed_routing),
+            "added": added,
+            "removed": removed,
+            "changed": changed,
+            "unchanged": unchanged,
+        },
+        "changes": changes,
+        "has_backup": _latest_routing_backup() is not None,
+    }
+
+
+@app.post("/api/routing/rollback")
+async def rollback_routing_config():
+    backup = _latest_routing_backup()
+    if backup is None:
+        raise HTTPException(status_code=404, detail="No routing backup found yet.")
+
+    current = _load_existing_routing_config()
+    if current:
+        _save_routing_backup(current, reason="prerollback")
+
+    with open(backup, encoding="utf-8") as f:
+        payload = json.load(f)
+    with open(ROUTING_CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+
+    return {
+        "status": "ok",
+        "message": f"Rolled back routing config using {backup.name}.",
+        "backup_path": str(backup),
+        "cluster_count": len((payload.get('routing') or {})),
     }
 
 
@@ -1002,6 +1295,37 @@ class JudgeModelRequest(BaseModel):
     model_id: Optional[str] = None
 
 
+class ProductGatewayConfigRequest(BaseModel):
+    host: str
+    port: int
+    upstream_provider: str
+
+
+class ProductBackendConfigRequest(BaseModel):
+    host: str
+    port: int
+
+
+class ProductFrontendConfigRequest(BaseModel):
+    port: int
+
+
+class ProductDefaultsConfigRequest(BaseModel):
+    gateway_model: str
+    gateway_api_key: str
+    confidence_threshold: float
+
+
+class ProductConfigRequest(BaseModel):
+    project_name: str
+    db_path: str
+    output_dir: str
+    gateway: ProductGatewayConfigRequest
+    dashboard_backend: ProductBackendConfigRequest
+    dashboard_frontend: ProductFrontendConfigRequest
+    defaults: ProductDefaultsConfigRequest
+
+
 class StartFineTuneRequest(BaseModel):
     cluster_id: int
     backend: str
@@ -1025,6 +1349,52 @@ def _ollama_model_names() -> list[str]:
         return names
     except Exception:
         return []
+
+
+@app.get("/api/gateway/activity")
+async def get_gateway_activity(limit: int = 50):
+    if not DB_PATH.exists():
+        return {"events": []}
+
+    limit = max(1, min(limit, 200))
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT timestamp, node_name, model_name, prompt, response, latency_ms, extra_metadata
+            FROM llm_calls
+            WHERE extra_metadata LIKE '%"gateway_mode"%'
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+    events = []
+    for row in rows:
+        try:
+            metadata = json.loads(row["extra_metadata"] or "{}")
+        except Exception:
+            metadata = {}
+        events.append({
+            "timestamp": row["timestamp"],
+            "node_name": row["node_name"],
+            "model_name": row["model_name"],
+            "model_display": metadata.get("route_model_display") or row["model_name"],
+            "cluster_name": metadata.get("route_cluster_name") or "unknown",
+            "confidence": float(metadata.get("route_confidence") or 0.0),
+            "is_local": bool(metadata.get("route_is_local")),
+            "nearest_cluster_name": metadata.get("nearest_cluster_name"),
+            "nearest_similarity": float(metadata.get("nearest_similarity") or 0.0),
+            "threshold": float(metadata.get("threshold") or 0.0),
+            "reason": metadata.get("route_reason") or "",
+            "gateway_mode": metadata.get("gateway_mode") or "upstream",
+            "provider": metadata.get("gateway_provider") or "unknown",
+            "latency_ms": row["latency_ms"],
+            "prompt_preview": (row["prompt"] or "")[:160],
+        })
+
+    return {"events": events}
 
 
 @app.get("/api/models")
@@ -1289,16 +1659,24 @@ async def finetune_start(req: StartFineTuneRequest):
     prepared = _prepare_finetune_payload(req.cluster_id)
     cluster_name = prepared["cluster_meta"]["name"]
     default_model = choose_default_model(req.backend)
+    selected_model_id = req.config.get("base_model") or default_model["id"]
+    _validate_model_access(
+        backend=req.backend,
+        model_id=selected_model_id,
+        hf_token=req.hf_token or os.getenv("HF_TOKEN"),
+    )
+    selected_model = lookup_backend_model(req.backend, selected_model_id) or default_model
     config = {
         "cluster_id": req.cluster_id,
         "cluster_name": cluster_name,
-        "base_model": req.config.get("base_model") or default_model["id"],
-        "deploy_base_model": req.config.get("deploy_base_model") or default_model["deploy_base_model"],
+        "base_model": selected_model["id"],
+        "deploy_base_model": req.config.get("deploy_base_model") or selected_model["deploy_base_model"],
         "epochs": int(req.config.get("epochs", 2)),
         "batch_size": int(req.config.get("batch_size", 2 if req.backend == "modal" else 1)),
         "learning_rate": float(req.config.get("learning_rate", 2e-4)),
         "lora_r": int(req.config.get("lora_r", 16)),
         "max_seq_length": int(req.config.get("max_seq_length", 512)),
+        "hf_token": req.hf_token or os.getenv("HF_TOKEN"),
     }
 
     job = job_store.create_job(
@@ -1469,6 +1847,233 @@ async def health():
         "db_exists": DB_PATH.exists(),
         "output_exists": OUTPUT_DIR.exists(),
     }
+
+
+@app.get("/api/product/config")
+async def product_config():
+    return load_product_config()
+
+
+@app.put("/api/product/config")
+async def update_product_config(req: ProductConfigRequest):
+    payload = req.model_dump()
+    payload["project_name"] = payload["project_name"].strip() or "AgentShrink Project"
+    payload["db_path"] = str(pathlib.Path(payload["db_path"]).expanduser().resolve())
+    payload["output_dir"] = str(pathlib.Path(payload["output_dir"]).expanduser().resolve())
+    payload["gateway"]["host"] = payload["gateway"]["host"].strip() or "127.0.0.1"
+    payload["dashboard_backend"]["host"] = payload["dashboard_backend"]["host"].strip() or "127.0.0.1"
+    payload["gateway"]["upstream_provider"] = payload["gateway"]["upstream_provider"].strip().lower() or "mock"
+    payload["defaults"]["gateway_model"] = payload["defaults"]["gateway_model"].strip() or "mock-model"
+    payload["defaults"]["gateway_api_key"] = payload["defaults"]["gateway_api_key"].strip() or "agentshrink-local"
+    pathlib.Path(payload["db_path"]).parent.mkdir(parents=True, exist_ok=True)
+    pathlib.Path(payload["output_dir"]).mkdir(parents=True, exist_ok=True)
+    return save_product_config(payload)
+
+
+@app.post("/api/product/token/rotate")
+async def rotate_product_token():
+    config = load_product_config()
+    config.setdefault("defaults", {})
+    config["defaults"]["gateway_api_key"] = generate_project_token()
+    saved = save_product_config(config)
+    return {
+        "status": "ok",
+        "message": "Project token rotated. Restart the gateway/stack so new clients use the updated token.",
+        "project_token": saved["defaults"]["gateway_api_key"],
+        "config": saved,
+    }
+
+
+@app.get("/api/product/doctor")
+async def product_doctor():
+    checks = run_doctor_checks()
+    return {
+        "checks": [
+            {
+                "name": check.name,
+                "ok": check.ok,
+                "detail": check.detail,
+                "remedy": check.remedy,
+                "category": check.category,
+                "severity": check.severity,
+                "commands": check.commands or [],
+            }
+            for check in checks
+        ]
+    }
+
+
+def _probe_http(url: str) -> bool:
+    try:
+        with urllib.request.urlopen(url, timeout=1.5) as response:
+            return 200 <= getattr(response, "status", 0) < 500
+    except Exception:
+        return False
+
+
+def _recommended_stack_actions(stack: dict) -> list[dict]:
+    all_healthy = bool(stack.get("all_healthy"))
+    any_running = bool(stack.get("any_running"))
+
+    if all_healthy:
+        return [
+            {
+                "id": "inspect-status",
+                "label": "Inspect stack status",
+                "command": "venv\\Scripts\\python.exe -m agentshrink.cli stack status",
+                "kind": "inspect",
+                "risk": "safe",
+                "reason": "All services are healthy. No restart is needed right now.",
+            }
+        ]
+
+    if any_running:
+        dead_services = [
+            name for name in ("gateway", "backend", "frontend")
+            if not (stack.get(name) or {}).get("healthy")
+        ]
+        return [
+            {
+                "id": "inspect-status",
+                "label": "Inspect stack status",
+                "command": "venv\\Scripts\\python.exe -m agentshrink.cli stack status",
+                "kind": "inspect",
+                "risk": "safe",
+                "reason": "One or more services are unhealthy. Inspect before taking action.",
+            },
+            {
+                "id": "graceful-restart",
+                "label": "Restart the stack cleanly",
+                "command": "venv\\Scripts\\python.exe -m agentshrink.cli stack down\nvenv\\Scripts\\python.exe -m agentshrink.cli stack up",
+                "kind": "restart",
+                "risk": "caution",
+                "reason": (
+                    "Recommended because these services are not healthy: "
+                    f"{', '.join(dead_services) if dead_services else 'unknown'}."
+                ),
+            },
+        ]
+
+    return [
+        {
+            "id": "start-stack",
+            "label": "Start the local stack",
+            "command": "venv\\Scripts\\python.exe -m agentshrink.cli stack up",
+            "kind": "start",
+            "risk": "safe",
+            "reason": "No running services were detected, so the next safe step is to start the stack.",
+        }
+    ]
+
+
+@app.get("/api/product/stack")
+async def product_stack():
+    config = load_product_config()
+    runtime = load_runtime_state()
+    services = runtime.get("services", {}) or {}
+
+    gateway_url = f"http://{config['gateway']['host']}:{config['gateway']['port']}"
+    backend_url = f"http://{config['dashboard_backend']['host']}:{config['dashboard_backend']['port']}"
+    frontend_url = f"http://127.0.0.1:{config['dashboard_frontend']['port']}"
+    gateway_health_url = f"{gateway_url}/health"
+    backend_health_url = f"{backend_url}/api/health"
+    frontend_health_url = f"{frontend_url}/"
+
+    stack = {
+        "gateway": {
+            "configured_url": gateway_health_url,
+            "process_recorded": bool(services.get("gateway")),
+            "healthy": _probe_http(gateway_health_url),
+        },
+        "backend": {
+            "configured_url": backend_health_url,
+            "process_recorded": bool(services.get("backend")),
+            # If this handler is responding, the backend is already healthy.
+            # Avoid probing the same server over HTTP from inside this request.
+            "healthy": True,
+        },
+        "frontend": {
+            "configured_url": frontend_health_url,
+            "process_recorded": bool(services.get("frontend")),
+            "healthy": _probe_http(frontend_health_url),
+        },
+    }
+
+    stack["all_healthy"] = all(service["healthy"] for service in stack.values())
+    stack["any_running"] = any(service["healthy"] or service["process_recorded"] for service in stack.values())
+    stack["recommended_actions"] = _recommended_stack_actions(stack)
+    return stack
+
+
+@app.get("/api/product/logs")
+async def product_logs(service: str, stream: str = "stdout", lines: int = 80):
+    runtime = load_runtime_state()
+    services = runtime.get("services", {}) or {}
+    svc = services.get(service)
+    if not svc:
+        raise HTTPException(status_code=404, detail=f"No runtime service recorded for '{service}'.")
+
+    key = "stderr_log" if stream == "stderr" else "stdout_log"
+    log_path = pathlib.Path(svc.get(key, ""))
+    if not log_path.exists():
+        raise HTTPException(status_code=404, detail=f"No {stream} log found for '{service}'.")
+
+    max_lines = max(1, min(int(lines), 400))
+    with open(log_path, encoding="utf-8", errors="replace") as f:
+        content_lines = f.readlines()
+
+    return {
+        "service": service,
+        "stream": stream,
+        "path": str(log_path),
+        "lines": [line.rstrip("\n") for line in content_lines[-max_lines:]],
+    }
+
+
+@app.post("/api/product/test-gateway")
+async def product_test_gateway():
+    config = load_product_config()
+    gateway_base = f"http://{config['gateway']['host']}:{config['gateway']['port']}/v1/chat/completions"
+    upstream_provider = ((config.get("gateway") or {}).get("upstream_provider") or "").strip().lower()
+    payload = {
+        "model": config["defaults"]["gateway_model"],
+        "messages": [
+            {"role": "system", "content": "You are a short onboarding assistant."},
+            {"role": "user", "content": "Reply in one short sentence that confirms the AgentShrink gateway is working."},
+        ],
+        "metadata": {
+            "agentshrink_node": "welcome_gateway_probe",
+        },
+    }
+    req = urllib.request.Request(
+        gateway_base,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {config['defaults']['gateway_api_key']}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as response:
+            body = json.loads(response.read().decode("utf-8"))
+        message = (
+            (((body.get("choices") or [{}])[0]).get("message") or {}).get("content")
+            or ""
+        )
+        if upstream_provider == "mock":
+            message = "AgentShrink gateway is working and ready to receive your app traffic."
+        return {
+            "status": "ok",
+            "gateway_url": gateway_base,
+            "model": config["defaults"]["gateway_model"],
+            "message": message,
+        }
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise HTTPException(status_code=400, detail=f"Gateway test failed: {detail}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Gateway test failed: {exc}") from exc
 
 
 # ─────────────────────────────────────────────

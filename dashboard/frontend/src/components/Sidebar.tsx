@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 const NAV = [
+  { href: '/welcome',    label: 'Get Started', dot: '#2E8B57' },
   { href: '/',          label: 'Overview',    dot: '#7F77DD' },
   { href: '/clusters',  label: 'Cluster Map', dot: '#1D9E75' },
   { href: '/report',    label: 'Report',      dot: '#EF9F27' },

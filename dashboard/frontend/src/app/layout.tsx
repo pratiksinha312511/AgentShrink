@@ -1,27 +1,17 @@
 import type { Metadata } from 'next'
 import './globals.css'
-import Sidebar from '@/components/Sidebar'
+import AppChrome from '@/components/AppChrome'
 
 export const metadata: Metadata = {
-  title: 'AgentShrink Dashboard',
-  description: 'Automatically convert LLM agents to use cheaper local SLMs',
+  title: 'AgentShrink',
+  description: 'Trace, analyze, and route AI agent calls to cheaper safer models.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-          <Sidebar />
-          <main style={{
-            flex: 1,
-            overflow: 'auto',
-            padding: '24px',
-            background: 'var(--bg-tertiary)',
-          }}>
-            {children}
-          </main>
-        </div>
+        <AppChrome>{children}</AppChrome>
       </body>
     </html>
   )

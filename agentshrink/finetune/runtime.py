@@ -38,31 +38,55 @@ BACKEND_OPTIONS = [
 BACKEND_MODELS = {
     "modal": [
         {
+            "id": "meta-llama/Llama-3.2-3B-Instruct",
+            "label": "Llama 3.2 3B (HF gated access)",
+            "deploy_base_model": "llama3.2:3b",
+            "gated": True,
+            "requires_hf_token": True,
+        },
+        {
             "id": "Qwen/Qwen2.5-1.5B-Instruct",
             "label": "Qwen 2.5 1.5B (recommended)",
             "deploy_base_model": "qwen2.5:1.5b",
+            "gated": False,
+            "requires_hf_token": False,
         },
         {
             "id": "HuggingFaceTB/SmolLM2-1.7B-Instruct",
             "label": "SmolLM2 1.7B",
             "deploy_base_model": "smollm2:1.7b",
+            "gated": False,
+            "requires_hf_token": False,
         },
         {
             "id": "microsoft/Phi-3.5-mini-instruct",
             "label": "Phi 3.5 Mini",
             "deploy_base_model": "phi3.5:3.8b",
+            "gated": False,
+            "requires_hf_token": False,
         },
     ],
     "huggingface": [
         {
+            "id": "meta-llama/Llama-3.2-3B-Instruct",
+            "label": "Llama 3.2 3B (HF gated access)",
+            "deploy_base_model": "llama3.2:3b",
+            "gated": True,
+            "requires_hf_token": True,
+        },
+        {
             "id": "HuggingFaceTB/SmolLM2-1.7B-Instruct",
             "label": "SmolLM2 1.7B",
             "deploy_base_model": "smollm2:1.7b",
+            "gated": False,
+            "requires_hf_token": False,
         },
         {
             "id": "Qwen/Qwen2.5-1.5B-Instruct",
             "label": "Qwen 2.5 1.5B",
             "deploy_base_model": "qwen2.5:1.5b",
+            "gated": False,
+            "requires_hf_token": False,
         },
     ],
 }
@@ -87,7 +111,17 @@ def choose_default_model(backend: str) -> dict[str, Any]:
     models = BACKEND_MODELS.get(backend, [])
     if not models:
         raise ValueError(f"No models configured for backend '{backend}'")
+    for model in models:
+        if not model.get("gated"):
+            return model
     return models[0]
+
+
+def lookup_backend_model(backend: str, model_id: str) -> dict[str, Any] | None:
+    for model in BACKEND_MODELS.get(backend, []):
+        if model.get("id") == model_id:
+            return model
+    return None
 
 
 def write_training_artifacts(result: dict[str, Any], artifact_dir: pathlib.Path) -> dict[str, Any]:
@@ -295,6 +329,7 @@ def _merge_adapter_with_base_model(
 
 def _ollama_base_to_hf_model(base_model: str) -> str:
     mapping = {
+        "llama3.2:3b": "meta-llama/Llama-3.2-3B-Instruct",
         "qwen2.5:1.5b": "Qwen/Qwen2.5-1.5B-Instruct",
         "smollm2:1.7b": "HuggingFaceTB/SmolLM2-1.7B-Instruct",
         "phi3.5:3.8b": "microsoft/Phi-3.5-mini-instruct",

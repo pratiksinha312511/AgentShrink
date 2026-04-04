@@ -15,6 +15,10 @@ setup(
         "click>=8.1.7",
         "python-dotenv>=1.0.1",
         "rich>=13.8.1",
+        "fastapi>=0.115.5",
+        "uvicorn>=0.32.0",
+        "openai>=1.54.4",
+        "huggingface_hub>=0.26.2",
     ],
     entry_points={
         "console_scripts": [

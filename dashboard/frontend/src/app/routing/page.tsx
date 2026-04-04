@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
-import { createRoutingWebSocket, fetchRoutingStats } from '@/lib/api'
+import { createRoutingWebSocket, fetchGatewayActivity, fetchRoutingStats } from '@/lib/api'
 
 interface RouteEvent {
   cluster_name:  string
@@ -35,6 +35,13 @@ function formatTs(ts: number) {
   })
 }
 
+function toEpochSeconds(value: string | number | undefined) {
+  if (typeof value === 'number') return value
+  if (!value) return Date.now() / 1000
+  const parsed = Date.parse(value)
+  return Number.isNaN(parsed) ? Date.now() / 1000 : parsed / 1000
+}
+
 export default function RoutingPage() {
   const [events, setEvents]     = useState<RouteEvent[]>([])
   const [stats, setStats]       = useState<any>(null)
@@ -46,6 +53,37 @@ export default function RoutingPage() {
   useEffect(() => {
     // Load routing config stats
     fetchRoutingStats().then(setStats).catch(() => {})
+    fetchGatewayActivity(50).then((data) => {
+      const loaded = (data.events || []).map((ev: any) => ({
+        ...ev,
+        timestamp: toEpochSeconds(ev.timestamp),
+      })).reverse()
+      setEvents(loaded)
+      setTotals({
+        local: loaded.filter((ev: RouteEvent) => ev.is_local).length,
+        api: loaded.filter((ev: RouteEvent) => !ev.is_local).length,
+      })
+    }).catch(() => {})
+
+    const poll = setInterval(() => {
+      fetchGatewayActivity(50).then((data) => {
+        const loaded = (data.events || []).map((ev: any) => ({
+          ...ev,
+          timestamp: toEpochSeconds(ev.timestamp),
+        })).reverse()
+        setEvents(prev => {
+          if (loaded.length === 0) return prev
+          const prevKey = prev.map(ev => `${ev.timestamp}-${ev.cluster_name}-${ev.model_name}`).join('|')
+          const nextKey = loaded.map((ev: RouteEvent) => `${ev.timestamp}-${ev.cluster_name}-${ev.model_name}`).join('|')
+          if (prevKey === nextKey) return prev
+          return loaded
+        })
+        setTotals({
+          local: loaded.filter((ev: RouteEvent) => ev.is_local).length,
+          api: loaded.filter((ev: RouteEvent) => !ev.is_local).length,
+        })
+      }).catch(() => {})
+    }, 4000)
 
     // Connect WebSocket
     const connect = () => {
@@ -85,7 +123,10 @@ export default function RoutingPage() {
     }
 
     connect()
-    return () => wsRef.current?.close()
+    return () => {
+      clearInterval(poll)
+      wsRef.current?.close()
+    }
   }, [])
 
   // Auto-scroll to bottom
@@ -229,17 +270,26 @@ export default function RoutingPage() {
                     [{ev.cluster_name}]
                   </div>
                   {ev.prompt_preview && (
-                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontStyle: 'italic', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                    <div style={{
+                      fontSize: 11,
+                      color: 'var(--text-tertiary)',
+                      fontStyle: 'italic',
+                      overflowWrap: 'anywhere',
+                      whiteSpace: 'normal',
+                      lineHeight: 1.45,
+                    }}>
                       {ev.prompt_preview}
                     </div>
                   )}
                 </div>
-                <ModelBadge isLocal={ev.is_local} model={ev.model_display} />
-                <div style={{ fontSize: 10, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
+                <div style={{ minWidth: 0, alignSelf: 'start' }}>
+                  <ModelBadge isLocal={ev.is_local} model={ev.model_display} />
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--text-tertiary)', lineHeight: 1.5, minWidth: 0 }}>
                   <div>nearest: {ev.nearest_cluster_name || 'n/a'}</div>
                   <div>sim: {((ev.nearest_similarity ?? 0) * 100).toFixed(0)}%</div>
                   <div>thr: {((ev.threshold ?? 0) * 100).toFixed(0)}%</div>
-                  <div style={{ overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                  <div style={{ overflowWrap: 'anywhere', whiteSpace: 'normal' }}>
                     {ev.reason || ''}
                   </div>
                 </div>

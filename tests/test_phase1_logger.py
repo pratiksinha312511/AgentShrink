@@ -18,6 +18,7 @@ import os
 import pathlib
 import sqlite3
 import time
+import tempfile
 
 # Add parent to path so we can import our modules
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
@@ -45,7 +46,7 @@ def test_logger_captures_calls():
     from target_agent.agent import build_agent
 
     # Use a temporary DB for testing — don't pollute the real one
-    test_db = pathlib.Path("/tmp/agentshrink_test.db")
+    test_db = pathlib.Path(tempfile.gettempdir()) / "agentshrink_test.db"
     if test_db.exists():
         test_db.unlink()  # Start fresh for each test run
 
@@ -95,7 +96,7 @@ def test_logger_captures_calls():
 
     assert empty_prompts == 0, f"{empty_prompts} rows have empty prompts"
 
-    console.print("  [green]✓ Test 1 passed[/green] — Logger captures 5 calls correctly")
+    console.print("  [green]PASS Test 1[/green] - Logger captures 5 calls correctly")
     return test_db
 
 
@@ -118,7 +119,7 @@ def test_logger_captures_latency(test_db: pathlib.Path):
     avg_latency = sum(latencies) / len(latencies)
     console.print(f"  Latencies: {latencies} ms")
     console.print(f"  Average: {avg_latency:.0f} ms")
-    console.print("  [green]✓ Test 2 passed[/green] — Latencies look sensible")
+    console.print("  [green]PASS Test 2[/green] - Latencies look sensible")
 
 
 def test_logger_captures_tokens(test_db: pathlib.Path):
@@ -142,7 +143,7 @@ def test_logger_captures_tokens(test_db: pathlib.Path):
         console.print("  Cost estimates will be approximate. Clustering still works fine.")
     else:
         console.print(f"  Rows with token data: {len(rows_with_tokens)}/5")
-        console.print("  [green]✓ Test 3 passed[/green] — Token counts captured")
+        console.print("  [green]PASS Test 3[/green] - Token counts captured")
 
 
 def test_run_id_groups_calls(test_db: pathlib.Path):
@@ -162,7 +163,7 @@ def test_run_id_groups_calls(test_db: pathlib.Path):
         f"All 5 nodes should share the run_id assigned to the logger instance."
 
     console.print(f"  run_id: {distinct_runs[0][0][:16]}...")
-    console.print("  [green]✓ Test 4 passed[/green] — All 5 calls share one run_id")
+    console.print("  [green]PASS Test 4[/green] - All 5 calls share one run_id")
 
 
 def test_prompt_hash_deduplication(test_db: pathlib.Path):
@@ -185,7 +186,7 @@ def test_prompt_hash_deduplication(test_db: pathlib.Path):
         f"Two nodes may have identical prompts (unlikely but check your nodes)."
 
     console.print(f"  Hashes: {hashes}")
-    console.print("  [green]✓ Test 5 passed[/green] — Prompt hashing works correctly")
+    console.print("  [green]PASS Test 5[/green] - Prompt hashing works correctly")
 
 
 def test_summary_method(test_db: pathlib.Path):
@@ -206,7 +207,7 @@ def test_summary_method(test_db: pathlib.Path):
     console.print(f"  Total runs: {summary['total_runs']}")
     console.print(f"  Nodes: {[n['name'] for n in summary['nodes']]}")
     console.print(f"  Est. cost: ${summary['total_cost_usd']:.4f}")
-    console.print("  [green]✓ Test 6 passed[/green] — Summary method works")
+    console.print("  [green]PASS Test 6[/green] - Summary method works")
 
 
 def test_generate_bulk_data():
@@ -264,13 +265,13 @@ def test_generate_bulk_data():
     assert summary["total_calls"] >= 40, \
         f"Expected at least 40 calls, got {summary['total_calls']}"
 
-    console.print("  [green]✓ Test 7 passed[/green] — Bulk data generated, ready for Phase 2")
+    console.print("  [green]PASS Test 7[/green] - Bulk data generated, ready for Phase 2")
     console.print(f"  [green]Database location: {summary['db_path']}[/green]")
 
 
 if __name__ == "__main__":
     console.print(Panel.fit(
-        "[bold]AgentShrink — Phase 1 Verification Tests[/bold]\n"
+        "[bold]AgentShrink - Phase 1 Verification Tests[/bold]\n"
         "These tests verify the logger works before you build Phase 2.\n"
         "[yellow]DO NOT proceed to Phase 2 if any test fails.[/yellow]",
         border_style="blue"
@@ -310,7 +311,7 @@ if __name__ == "__main__":
         console.print("[red]Fix this before moving to Phase 2.[/red]")
         sys.exit(1)
     except Exception as e:
-        console.print(f"\n[bold red]❌ ERROR:[/bold red] {e}")
+        console.print(f"\n[bold red]ERROR:[/bold red] {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

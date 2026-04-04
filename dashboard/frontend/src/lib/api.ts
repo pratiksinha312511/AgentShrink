@@ -1,4 +1,4 @@
-const API = 'http://localhost:8000'
+const API = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
 
 async function readJsonOrThrow(r: Response, fallback: string) {
   let data: any = null
@@ -33,6 +33,56 @@ export async function fetchAnalysisLogs() {
 export async function fetchRoutingStats() {
   const r = await fetch(`${API}/api/routing/stats`, { cache: 'no-store' })
   return readJsonOrThrow(r, 'Failed to fetch routing stats')
+}
+
+export async function fetchGatewayActivity(limit = 50) {
+  const r = await fetch(`${API}/api/gateway/activity?limit=${limit}`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch gateway activity')
+}
+
+export async function fetchProductConfig() {
+  const r = await fetch(`${API}/api/product/config`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch product config')
+}
+
+export async function saveProductConfig(config: any) {
+  const r = await fetch(`${API}/api/product/config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  })
+  return readJsonOrThrow(r, 'Failed to save product config')
+}
+
+export async function rotateProductToken() {
+  const r = await fetch(`${API}/api/product/token/rotate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  return readJsonOrThrow(r, 'Failed to rotate project token')
+}
+
+export async function fetchProductDoctor() {
+  const r = await fetch(`${API}/api/product/doctor`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch product doctor')
+}
+
+export async function fetchProductStack() {
+  const r = await fetch(`${API}/api/product/stack`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch product stack')
+}
+
+export async function fetchProductLogs(service: string, stream: 'stdout' | 'stderr' = 'stdout', lines = 80) {
+  const r = await fetch(`${API}/api/product/logs?service=${encodeURIComponent(service)}&stream=${stream}&lines=${lines}`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch product logs')
+}
+
+export async function testProductGateway() {
+  const r = await fetch(`${API}/api/product/test-gateway`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  return readJsonOrThrow(r, 'Failed to test gateway')
 }
 
 export async function fetchConfig() {
@@ -76,6 +126,19 @@ export async function applyReport() {
     headers: { 'Content-Type': 'application/json' },
   })
   return readJsonOrThrow(r, 'Failed to apply report')
+}
+
+export async function fetchRoutingSimulation() {
+  const r = await fetch(`${API}/api/routing/simulate`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch routing simulation')
+}
+
+export async function rollbackRoutingConfig() {
+  const r = await fetch(`${API}/api/routing/rollback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  return readJsonOrThrow(r, 'Failed to rollback routing config')
 }
 
 export async function fetchFineTunePreview(clusterId: number, limit = 5) {

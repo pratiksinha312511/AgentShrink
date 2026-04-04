@@ -68,9 +68,11 @@ export default function ClustersPage() {
   const [selected, setSelected] = useState<string | null>(null)
   const [waitingForAnalysis, setWaitingForAnalysis] = useState(false)
   const [evaluatingClusterId, setEvaluatingClusterId] = useState<string | null>(null)
+  const [evaluatingAll, setEvaluatingAll] = useState(false)
   const [actionMsg, setActionMsg] = useState('')
   const [reportClusterId, setReportClusterId] = useState<string | null>(null)
   const [targetedRunReady, setTargetedRunReady] = useState(false)
+  const [fullReportBaseline, setFullReportBaseline] = useState<string | null>(null)
 
   useEffect(() => {
     const persistedTargetCluster = window.localStorage.getItem(TARGET_CLUSTER_STORAGE_KEY)
@@ -130,6 +132,39 @@ export default function ClustersPage() {
     }
   }, [reportClusterId, targetedRunReady])
 
+  useEffect(() => {
+    if (!evaluatingAll) return
+
+    let cancelled = false
+    const pollFullReport = async () => {
+      try {
+        const report = await fetchReport()
+        const generatedAt = report?.generated_at ?? null
+        if (cancelled) return
+        if (generatedAt && generatedAt !== fullReportBaseline) {
+          setEvaluatingAll(false)
+          setWaitingForAnalysis(false)
+          setFullReportBaseline(generatedAt)
+          window.localStorage.removeItem(ANALYSIS_STORAGE_KEY)
+          setActionMsg('Evaluate all complete. The main replaceability report has been refreshed.')
+        } else {
+          setActionMsg('Evaluate all is running. We are waiting for the main report to refresh.')
+        }
+      } catch {
+        if (!cancelled) {
+          setActionMsg('Evaluate all is running. We are waiting for the main report to refresh.')
+        }
+      }
+    }
+
+    pollFullReport()
+    const interval = setInterval(pollFullReport, 5000)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [evaluatingAll, fullReportBaseline])
+
   if (loading) return <div style={{ color: 'var(--text-tertiary)', padding: 40, textAlign: 'center' }}>Loading cluster map...</div>
 
   if (error) return (
@@ -177,6 +212,44 @@ export default function ClustersPage() {
     }
   }
 
+  const handleEvaluateAll = async () => {
+    setEvaluatingAll(true)
+    setEvaluatingClusterId(null)
+    setReportClusterId(null)
+    setTargetedRunReady(false)
+    setActionMsg('')
+    setWaitingForAnalysis(true)
+    window.localStorage.setItem(ANALYSIS_STORAGE_KEY, 'true')
+    window.localStorage.removeItem(TARGET_CLUSTER_STORAGE_KEY)
+
+    try {
+      let baseline: string | null = null
+      try {
+        const report = await fetchReport()
+        baseline = report?.generated_at ?? null
+      } catch {
+        baseline = null
+      }
+      setFullReportBaseline(baseline)
+
+      const result = await triggerAnalyse({
+        min_cluster_size: 5,
+        skip_eval: false,
+        no_llm_labels: true,
+      })
+      setActionMsg(
+        result?.message
+          ? `${result.message} for all clusters. We will keep checking for the refreshed report automatically.`
+          : 'Started evaluation for all clusters. We will keep checking for the refreshed report automatically.'
+      )
+    } catch (e: any) {
+      setEvaluatingAll(false)
+      setWaitingForAnalysis(false)
+      window.localStorage.removeItem(ANALYSIS_STORAGE_KEY)
+      setActionMsg(e?.message || 'Failed to start evaluate all.')
+    }
+  }
+
   // Filter points by selected cluster
   const visiblePoints = selected
     ? data?.points.filter(p => String(p.cluster_id) === selected) ?? []
@@ -185,10 +258,35 @@ export default function ClustersPage() {
   return (
     <div style={{ maxWidth: 900 }}>
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>Cluster Map</h1>
-        <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-          {data?.points.length ?? 0} prompts → {data?.n_clusters ?? 0} task clusters
-          {(data?.n_noise ?? 0) > 0 && ` (${data?.n_noise} noise points excluded)`}
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            <h1 style={{ fontSize: 22, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>Cluster Map</h1>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+              {data?.points.length ?? 0} prompts {'->'} {data?.n_clusters ?? 0} task clusters
+              {(data?.n_noise ?? 0) > 0 && ` (${data?.n_noise} noise points excluded)`}
+            </div>
+          </div>
+          <button
+            onClick={handleEvaluateAll}
+            disabled={evaluatingAll}
+            style={{
+              background: '#1D9E75',
+              color: 'white',
+              border: 'none',
+              borderRadius: 8,
+              padding: '9px 14px',
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: evaluatingAll ? 'default' : 'pointer',
+              opacity: evaluatingAll ? 0.7 : 1,
+              flexShrink: 0,
+            }}
+          >
+            {evaluatingAll ? 'Evaluating all...' : 'Evaluate All'}
+          </button>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 8 }}>
+          Use individual `Evaluate` buttons for targeted reports, or `Evaluate All` to refresh the main replaceability report for every current cluster.
         </div>
       </div>
 

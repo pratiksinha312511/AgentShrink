@@ -4,6 +4,7 @@ agentshrink/cli.py - CLI interface for AgentShrink.
 Commands:
   agentshrink status     -> Show captured call summary (Phase 1)
   agentshrink analyse    -> Run clustering + report (Phase 2+3)
+  agentshrink gateway    -> Run OpenAI-compatible AgentShrink gateway
   agentshrink shrink     -> Apply routing (Phase 4 - coming soon)
   agentshrink monitor    -> Quality check (Phase 4+ - coming soon)
 """
@@ -13,6 +14,11 @@ import pathlib
 import json
 import os
 import time
+import subprocess
+import signal
+import urllib.request
+import socket
+from contextlib import suppress
 
 import click
 from rich import box
@@ -20,10 +26,225 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from agentshrink.app_setup import (
+    PRODUCT_CONFIG_PATH,
+    RUNTIME_LOG_DIR,
+    RUNTIME_STATE_PATH,
+    initialize_product_config,
+    load_runtime_state,
+    load_product_config,
+    run_doctor_checks,
+    save_runtime_state,
+)
 from agentshrink.project_config import get_eval_samples_per_cluster
 from agentshrink.project_config import get_judge_min_interval_s, get_remote_min_interval_s
 
 console = Console()
+
+
+def _frontend_command(frontend_dir: pathlib.Path, port: int) -> list[str]:
+    next_cmd = frontend_dir / "node_modules" / ".bin" / ("next.cmd" if os.name == "nt" else "next")
+    if next_cmd.exists():
+        return [str(next_cmd.resolve()), "dev", "--hostname", "127.0.0.1", "--port", str(port)]
+    npm_cmd = "npm.cmd" if os.name == "nt" else "npm"
+    return [npm_cmd, "run", "dev", "--", "--hostname", "127.0.0.1", "--port", str(port)]
+
+
+def _frontend_server_command(frontend_dir: pathlib.Path, port: int) -> list[str]:
+    next_cmd = frontend_dir / "node_modules" / ".bin" / ("next.cmd" if os.name == "nt" else "next")
+    if next_cmd.exists():
+        return [str(next_cmd.resolve()), "start", "--hostname", "127.0.0.1", "--port", str(port)]
+    npm_cmd = "npm.cmd" if os.name == "nt" else "npm"
+    return [npm_cmd, "run", "start", "--", "--hostname", "127.0.0.1", "--port", str(port)]
+
+
+def _normalize_background_command(command: list[str]) -> list[str]:
+    if os.name != "nt" or not command:
+        return command
+    exe = command[0]
+    try:
+        exe_path = pathlib.Path(exe)
+        if exe_path.is_absolute() and exe_path.name.lower().startswith("python"):
+            command = [os.path.relpath(str(exe_path), str(pathlib.Path.cwd().resolve()))] + command[1:]
+    except Exception:
+        pass
+    return command
+
+
+def _launch_background_process(*, name: str, command: list[str], cwd: pathlib.Path, env: dict[str, str]) -> dict:
+    RUNTIME_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    stdout_path = RUNTIME_LOG_DIR / f"{name}.out.log"
+    stderr_path = RUNTIME_LOG_DIR / f"{name}.err.log"
+    cwd = cwd.resolve()
+
+    if os.name == "nt":
+        script_path = RUNTIME_LOG_DIR / f"{name}.launch.cmd"
+        command = _normalize_background_command(command)
+        env_lines = []
+        for key, value in sorted(env.items()):
+            if os.environ.get(key) == value:
+                continue
+            safe_value = value.replace('"', '""')
+            env_lines.append(f'set "{key}={safe_value}"')
+        script_lines = [
+            "@echo off",
+            "setlocal",
+            f'cd /d "{cwd}"',
+            *env_lines,
+            f'call {subprocess.list2cmdline(command)} 1>>"{stdout_path.resolve()}" 2>>"{stderr_path.resolve()}"',
+        ]
+        script_path.write_text("\n".join(script_lines) + "\n", encoding="utf-8")
+        creationflags = 0
+        creationflags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        creationflags |= getattr(subprocess, "DETACHED_PROCESS", 0)
+        creationflags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        creationflags |= getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
+        process = subprocess.Popen(
+            ["cmd.exe", "/c", str(script_path.resolve())],
+            cwd=str(pathlib.Path.cwd().resolve()),
+            env=os.environ.copy(),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            creationflags=creationflags,
+        )
+        pid = process.pid
+    else:
+        stdout_file = open(stdout_path, "w", encoding="utf-8")
+        stderr_file = open(stderr_path, "w", encoding="utf-8")
+        process = subprocess.Popen(
+            command,
+            cwd=str(cwd),
+            env=env,
+            stdout=stdout_file,
+            stderr=stderr_file,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        pid = process.pid
+
+    return {
+        "pid": pid,
+        "command": command,
+        "cwd": str(cwd),
+        "stdout_log": str(stdout_path),
+        "stderr_log": str(stderr_path),
+        "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+
+
+def _pid_is_running(pid: int) -> bool:
+    try:
+        if os.name == "nt":
+            result = subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-Command",
+                    f"$p = Get-Process -Id {pid} -ErrorAction SilentlyContinue; if ($p) {{ 'running' }}",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            return "running" in (result.stdout or "")
+        os.kill(pid, 0)
+        return True
+    except Exception:
+        return False
+
+
+def _terminate_pid(pid: int):
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True, check=False)
+    else:
+        with suppress(Exception):  # type: ignore[name-defined]
+            os.kill(pid, signal.SIGTERM)
+
+
+def _probe_http(url: str, timeout: float = 1.5) -> bool:
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            return 200 <= getattr(response, "status", 0) < 500
+    except Exception:
+        return False
+
+
+def _port_is_in_use(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.5)
+        return sock.connect_ex((host, port)) == 0
+
+
+def _reserve_log_path(path: pathlib.Path) -> pathlib.Path:
+    try:
+        with open(path, "a", encoding="utf-8"):
+            pass
+        return path
+    except PermissionError:
+        stamped = path.with_name(f"{path.stem}-{int(time.time())}{path.suffix}")
+        with open(stamped, "a", encoding="utf-8"):
+            pass
+        return stamped
+
+
+def _launch_supervised_process(*, command: list[str], cwd: pathlib.Path, env: dict[str, str], name: str) -> tuple[subprocess.Popen, dict]:
+    RUNTIME_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    stdout_path = _reserve_log_path(RUNTIME_LOG_DIR / f"{name}.out.log")
+    stderr_path = _reserve_log_path(RUNTIME_LOG_DIR / f"{name}.err.log")
+    stdout_file = open(stdout_path, "w", encoding="utf-8")
+    stderr_file = open(stderr_path, "w", encoding="utf-8")
+    cwd = cwd.resolve()
+
+    kwargs = {
+        "cwd": str(cwd),
+        "env": env,
+        "stdout": stdout_file,
+        "stderr": stderr_file,
+        "stdin": subprocess.DEVNULL,
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    else:
+        kwargs["start_new_session"] = True
+
+    process = subprocess.Popen(command, **kwargs)
+    info = {
+        "pid": process.pid,
+        "command": command,
+        "cwd": str(cwd),
+        "stdout_log": str(stdout_path),
+        "stderr_log": str(stderr_path),
+        "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    return process, info
+
+
+def _wait_for_service(name: str, url: str, process: subprocess.Popen, timeout_s: float = 20.0) -> bool:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if process.poll() is not None:
+            return False
+        if _probe_http(url):
+            return True
+        time.sleep(0.5)
+    return False
+
+
+def _write_frontend_runtime_env(config: dict) -> bool:
+    frontend_dir = pathlib.Path("dashboard") / "frontend"
+    env_path = frontend_dir / ".env.local"
+    backend_url = f"http://127.0.0.1:{config['dashboard_backend']['port']}"
+    gateway_url = f"http://{config['gateway']['host']}:{config['gateway']['port']}/v1"
+    content = (
+        f"NEXT_PUBLIC_API_BASE_URL={backend_url}\n"
+        f"NEXT_PUBLIC_GATEWAY_BASE_URL={gateway_url}\n"
+    )
+    previous = env_path.read_text(encoding="utf-8") if env_path.exists() else None
+    if previous == content:
+        return False
+    env_path.write_text(content, encoding="utf-8")
+    return True
 
 
 def _dominant_node(cluster_info: dict) -> str:
@@ -125,6 +346,375 @@ def cli():
     """AgentShrink - Automatically convert LLM agents to use cheaper local SLMs.
     Based on NVIDIA arXiv:2506.02153 (June 2025)."""
     pass
+
+
+@cli.command()
+@click.option("--project-name", default="AgentShrink Project", show_default=True, help="Friendly name for this local AgentShrink project")
+@click.option("--db", "db_path", default=None, help="SQLite path for traces/logs")
+@click.option("--output-dir", default=None, help="Directory for analysis/routing outputs")
+@click.option("--gateway-port", default=8100, type=int, show_default=True)
+@click.option("--backend-port", default=8000, type=int, show_default=True)
+@click.option("--frontend-port", default=3000, type=int, show_default=True)
+@click.option(
+    "--upstream-provider",
+    default="mock",
+    show_default=True,
+    type=click.Choice(["mock", "openai", "nvidia", "ollama", "huggingface"]),
+)
+def init(project_name, db_path, output_dir, gateway_port, backend_port, frontend_port, upstream_provider):
+    """Create a local AgentShrink project manifest for easier startup."""
+    config = initialize_product_config(
+        project_name=project_name,
+        db_path=db_path,
+        output_dir=output_dir,
+        gateway_port=gateway_port,
+        backend_port=backend_port,
+        frontend_port=frontend_port,
+        upstream_provider=upstream_provider,
+    )
+    console.print(
+        Panel.fit(
+            "[bold]AgentShrink Initialized[/bold]\n"
+            f"Project: {config['project_name']}\n"
+            f"Config: {PRODUCT_CONFIG_PATH}",
+            border_style="green",
+        )
+    )
+    console.print("Next:")
+    console.print("  1. [bold]agentshrink doctor[/bold]")
+    console.print("  2. [bold]agentshrink start gateway[/bold]")
+    console.print("  3. Point your OpenAI-compatible app at the gateway URL")
+
+
+@cli.command()
+def doctor():
+    """Check whether the local AgentShrink project is ready to run."""
+    checks = run_doctor_checks()
+    table = Table(title="AgentShrink Doctor", box=box.ROUNDED, header_style="bold dim")
+    table.add_column("Check", style="white")
+    table.add_column("Status", style="cyan")
+    table.add_column("Detail", style="yellow")
+    failures = 0
+    for check in checks:
+        status = "[green]OK[/green]" if check.ok else "[red]FAIL[/red]"
+        if not check.ok:
+            failures += 1
+        table.add_row(check.name, status, check.detail)
+    console.print(table)
+    if failures:
+        console.print(f"[yellow]{failures} check(s) need attention before a smooth first run.[/yellow]")
+    else:
+        console.print("[green]All local AgentShrink checks passed.[/green]")
+
+
+@cli.group()
+def start():
+    """Start one local AgentShrink service using the saved project manifest."""
+    pass
+
+
+@start.command("gateway")
+def start_gateway():
+    """Start the gateway using saved project settings."""
+    config = load_product_config()
+    ctx = click.get_current_context()
+    ctx.invoke(
+        gateway,
+        host=config["gateway"]["host"],
+        port=int(config["gateway"]["port"]),
+        upstream_provider=config["gateway"]["upstream_provider"],
+        output_dir=config["output_dir"],
+        db=config["db_path"],
+        confidence_threshold=float(config["defaults"]["confidence_threshold"]),
+    )
+
+
+@start.command("backend")
+def start_backend():
+    """Start the dashboard backend using the saved project DB path."""
+    config = load_product_config()
+    backend_dir = pathlib.Path("dashboard") / "backend"
+    env = os.environ.copy()
+    env["AGENTSHRINK_DB_PATH"] = config["db_path"]
+    port = str(config["dashboard_backend"]["port"])
+    console.print(
+        Panel.fit(
+            "[bold]AgentShrink Dashboard Backend[/bold]\n"
+            f"DB: {config['db_path']}\n"
+            f"Listening on http://{config['dashboard_backend']['host']}:{port}",
+            border_style="blue",
+        )
+    )
+    raise SystemExit(
+        subprocess.call(
+            [sys.executable, "-m", "uvicorn", "main:app", "--port", port],
+            cwd=str(backend_dir),
+            env=env,
+        )
+    )
+
+
+@start.command("frontend")
+def start_frontend():
+    """Start the dashboard frontend."""
+    config = load_product_config()
+    frontend_dir = pathlib.Path("dashboard") / "frontend"
+    port = int(config["dashboard_frontend"]["port"])
+    _write_frontend_runtime_env(config)
+    frontend_env = os.environ.copy()
+    frontend_env["NEXT_PUBLIC_API_BASE_URL"] = f"http://127.0.0.1:{config['dashboard_backend']['port']}"
+    frontend_env["NEXT_PUBLIC_GATEWAY_BASE_URL"] = f"http://{config['gateway']['host']}:{config['gateway']['port']}/v1"
+    console.print(
+        Panel.fit(
+            "[bold]AgentShrink Dashboard Frontend[/bold]\n"
+            f"Open http://localhost:{port}",
+            border_style="blue",
+        )
+    )
+    raise SystemExit(
+        subprocess.call(
+            _frontend_command(frontend_dir.resolve(), port),
+            cwd=str(frontend_dir),
+            env=frontend_env,
+        )
+    )
+
+
+@start.command("guide")
+def start_guide():
+    """Print the saved one-copy local run guide."""
+    config = load_product_config()
+    gateway_url = f"http://{config['gateway']['host']}:{config['gateway']['port']}/v1"
+    panel = Panel.fit(
+        "[bold]AgentShrink Quickstart[/bold]\n"
+        f"1. agentshrink start gateway\n"
+        f"2. agentshrink start backend\n"
+        f"3. agentshrink start frontend\n\n"
+        f"Gateway URL: {gateway_url}\n"
+        f"DB Path: {config['db_path']}\n"
+        f"Dashboard: http://localhost:{config['dashboard_frontend']['port']}",
+        border_style="green",
+    )
+    console.print(panel)
+
+
+@cli.group()
+def stack():
+    """Manage the full local AgentShrink stack."""
+    pass
+
+
+@stack.command("up")
+@click.option("--skip-frontend", is_flag=True, default=False, help="Start gateway + backend only")
+def stack_up(skip_frontend):
+    """Start the full local AgentShrink stack in a foreground supervisor."""
+    config = load_product_config()
+    state = load_runtime_state()
+    existing = state.get("services", {})
+    running = {name: svc for name, svc in existing.items() if _pid_is_running(int(svc.get("pid", 0)))}
+    if running:
+        console.print("[yellow]Some stack services are already running.[/yellow]")
+        for name, svc in running.items():
+            console.print(f"  {name}: pid {svc['pid']}")
+        console.print("Use [bold]agentshrink stack down[/bold] first if you want a clean restart.")
+        return
+
+    services = {}
+    processes: dict[str, subprocess.Popen] = {}
+    db_path = config["db_path"]
+    output_dir = config["output_dir"]
+    gateway_url = f"http://{config['gateway']['host']}:{config['gateway']['port']}"
+    backend_url = f"http://127.0.0.1:{config['dashboard_backend']['port']}"
+    frontend_url = f"http://127.0.0.1:{config['dashboard_frontend']['port']}"
+
+    preflight_ports = [
+        ("gateway", config["gateway"]["host"], int(config["gateway"]["port"])),
+        ("backend", "127.0.0.1", int(config["dashboard_backend"]["port"])),
+    ]
+    if not skip_frontend:
+        preflight_ports.append(("frontend", "127.0.0.1", int(config["dashboard_frontend"]["port"])))
+
+    busy_ports = [
+        (name, host, port)
+        for name, host, port in preflight_ports
+        if _port_is_in_use(host, port)
+    ]
+    if busy_ports:
+        console.print("[red]AgentShrink stack could not start because one or more ports are already in use.[/red]")
+        for name, host, port in busy_ports:
+            console.print(f"  {name}: {host}:{port}")
+        console.print("Stop the conflicting process or run [bold]agentshrink init[/bold] with different ports, then try again.")
+        return
+
+    try:
+        gateway_proc, gateway_info = _launch_supervised_process(
+            name="gateway",
+            command=[
+                sys.executable, "-m", "agentshrink.cli", "gateway",
+                "--host", config["gateway"]["host"],
+                "--port", str(config["gateway"]["port"]),
+                "--upstream-provider", config["gateway"]["upstream_provider"],
+                "--output-dir", output_dir,
+                "--db", db_path,
+                "--confidence-threshold", str(config["defaults"]["confidence_threshold"]),
+            ],
+            cwd=pathlib.Path.cwd(),
+            env=os.environ.copy(),
+        )
+        processes["gateway"] = gateway_proc
+        services["gateway"] = gateway_info
+
+        backend_env = os.environ.copy()
+        backend_env["AGENTSHRINK_DB_PATH"] = db_path
+        backend_proc, backend_info = _launch_supervised_process(
+            name="backend",
+            command=[
+                sys.executable,
+                "-m",
+                "uvicorn",
+                "main:app",
+                "--app-dir",
+                str(pathlib.Path("dashboard") / "backend"),
+                "--port",
+                str(config["dashboard_backend"]["port"]),
+            ],
+            cwd=pathlib.Path.cwd(),
+            env=backend_env,
+        )
+        processes["backend"] = backend_proc
+        services["backend"] = backend_info
+
+        if not _wait_for_service("gateway", f"{gateway_url}/health", gateway_proc):
+            console.print("[red]Gateway failed to become healthy. Check .agentshrink/logs/gateway.err.log[/red]")
+            return
+        if not _wait_for_service("backend", f"{backend_url}/api/health", backend_proc):
+            console.print("[red]Backend failed to become healthy. Check .agentshrink/logs/backend.err.log[/red]")
+            return
+
+        if not skip_frontend:
+            frontend_cmd = "npm.cmd" if os.name == "nt" else "npm"
+            frontend_dir = pathlib.Path("dashboard") / "frontend"
+            env_changed = _write_frontend_runtime_env(config)
+            build_id_path = frontend_dir / ".next" / "BUILD_ID"
+            if build_id_path.exists() and not env_changed:
+                console.print("Using existing frontend production build for local stack.")
+            else:
+                console.print("Building frontend for local stack...")
+                build_result = subprocess.call(
+                    [frontend_cmd, "run", "build"],
+                    cwd=str(frontend_dir.resolve()),
+                    env=os.environ.copy(),
+                )
+                if build_result != 0:
+                    console.print("[red]Frontend build failed before startup.[/red]")
+                    if os.name == "nt":
+                        console.print(
+                            "[yellow]Tip:[/yellow] run [bold]npm.cmd run build[/bold] once inside "
+                            "[bold]dashboard\\frontend[/bold], then re-run [bold]agentshrink stack up[/bold]."
+                        )
+                    return
+
+            frontend_proc, frontend_info = _launch_supervised_process(
+                name="frontend",
+                command=_frontend_server_command(frontend_dir.resolve(), int(config["dashboard_frontend"]["port"])),
+                cwd=frontend_dir,
+                env={
+                    **os.environ.copy(),
+                    "NEXT_PUBLIC_API_BASE_URL": backend_url,
+                    "NEXT_PUBLIC_GATEWAY_BASE_URL": gateway_url + "/v1" if not gateway_url.endswith("/v1") else gateway_url,
+                },
+            )
+            processes["frontend"] = frontend_proc
+            services["frontend"] = frontend_info
+
+            if not _wait_for_service("frontend", f"{frontend_url}/", frontend_proc, timeout_s=25.0):
+                console.print("[red]Frontend failed to become healthy. Check .agentshrink/logs/frontend.err.log[/red]")
+                return
+
+        save_runtime_state({"services": services})
+        console.print(
+            Panel.fit(
+                "[bold]AgentShrink Stack Started[/bold]\n"
+                f"Gateway:   {gateway_url}\n"
+                f"Backend:   {backend_url}\n"
+                f"Frontend:  http://localhost:{config['dashboard_frontend']['port']}",
+                border_style="green",
+            )
+        )
+        console.print("Foreground supervisor is active. Press [bold]Ctrl+C[/bold] to stop the stack.")
+
+        while True:
+            dead = [name for name, process in processes.items() if process.poll() is not None]
+            if dead:
+                console.print(f"[red]Service exited unexpectedly:[/red] {', '.join(dead)}")
+                for name in dead:
+                    log_path = services.get(name, {}).get("stderr_log") or services.get(name, {}).get("stdout_log")
+                    if log_path:
+                        console.print(f"Check logs: [bold]{log_path}[/bold]")
+                break
+            time.sleep(1.0)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Stopping AgentShrink stack...[/yellow]")
+    finally:
+        for process in processes.values():
+            if process.poll() is None:
+                with suppress(Exception):
+                    if os.name == "nt":
+                        process.send_signal(signal.CTRL_BREAK_EVENT)
+                    else:
+                        process.terminate()
+        deadline = time.time() + 8
+        while time.time() < deadline:
+            alive = [process for process in processes.values() if process.poll() is None]
+            if not alive:
+                break
+            time.sleep(0.2)
+        for process in processes.values():
+            if process.poll() is None:
+                with suppress(Exception):
+                    process.kill()
+        save_runtime_state({"services": {}})
+
+
+@stack.command("status")
+def stack_status():
+    """Show local stack process status."""
+    state = load_runtime_state()
+    services = state.get("services", {})
+    table = Table(title="AgentShrink Stack", box=box.ROUNDED, header_style="bold dim")
+    table.add_column("Service")
+    table.add_column("PID")
+    table.add_column("Status")
+    table.add_column("Logs")
+    if not services:
+        console.print("[yellow]No saved stack services found. Start with `agentshrink stack up`.[/yellow]")
+        return
+    for name, svc in services.items():
+        pid = int(svc.get("pid", 0) or 0)
+        running = _pid_is_running(pid)
+        table.add_row(
+            name,
+            str(pid),
+            "[green]running[/green]" if running else "[red]stopped[/red]",
+            svc.get("stdout_log", ""),
+        )
+    console.print(table)
+
+
+@stack.command("down")
+def stack_down():
+    """Stop the local AgentShrink stack."""
+    state = load_runtime_state()
+    services = state.get("services", {})
+    if not services:
+        console.print("[yellow]No running stack services were recorded.[/yellow]")
+        return
+    for name, svc in services.items():
+        pid = int(svc.get("pid", 0) or 0)
+        if pid and _pid_is_running(pid):
+            _terminate_pid(pid)
+            console.print(f"Stopped {name} (pid {pid})")
+    save_runtime_state({"services": {}})
 
 
 @cli.command()
@@ -284,6 +874,56 @@ def analyse(db, output_dir, no_llm_labels, skip_eval, min_cluster_size, cluster_
 
     console.print(f"\n[green]OK Report: {report_path}[/green]")
     console.print("Next: [bold]agentshrink shrink[/bold] (Phase 4 - coming soon)")
+
+
+@cli.command()
+@click.option("--host", default="127.0.0.1", show_default=True, help="Host to bind the gateway server to")
+@click.option("--port", default=8100, type=int, show_default=True, help="Port to bind the gateway server to")
+@click.option(
+    "--upstream-provider",
+    default=lambda: os.getenv("AGENTSHRINK_GATEWAY_UPSTREAM_PROVIDER", "mock"),
+    show_default="mock",
+    type=click.Choice(["mock", "openai", "nvidia", "ollama", "huggingface"]),
+    help="Remote upstream for unmatched/fallback calls. Use 'mock' for free local testing.",
+)
+@click.option("--output-dir", default=".agentshrink_output", show_default=True, help="Routing config output directory")
+@click.option("--db", default=None, help="Path to gateway trace database (defaults to ~/.agentshrink/logs.db)")
+@click.option("--confidence-threshold", default=0.75, type=float, show_default=True, help="Routing confidence threshold")
+def gateway(host, port, upstream_provider, output_dir, db, confidence_threshold):
+    """Run the OpenAI-compatible AgentShrink gateway locally."""
+    import uvicorn
+
+    from agentshrink.gateway.app import create_gateway_app
+    from agentshrink.gateway.router import GatewayRouter
+    from agentshrink.gateway.upstream import OpenAICompatibleUpstream
+
+    db_path = pathlib.Path(db).expanduser() if db else None
+    product_config = load_product_config()
+    expected_api_key = (
+        os.getenv("AGENTSHRINK_PROJECT_TOKEN")
+        or ((product_config.get("defaults") or {}).get("gateway_api_key"))
+        or "agentshrink-local"
+    )
+    router = GatewayRouter(
+        output_dir=output_dir,
+        confidence_threshold=confidence_threshold,
+        fallback_provider=upstream_provider,
+        fallback_model=os.getenv("AGENTSHRINK_GATEWAY_FALLBACK_MODEL", os.getenv("TARGET_AGENT_OPENAI_MODEL", "gpt-4o-mini")),
+    )
+    upstream = OpenAICompatibleUpstream(provider=upstream_provider)
+    app = create_gateway_app(upstream=upstream, db_path=db_path, router=router, expected_api_key=expected_api_key)
+
+    console.print(Panel.fit(
+        "[bold]AgentShrink Gateway[/bold]\n"
+        f"Listening on http://{host}:{port}\n"
+        f"Upstream provider: {upstream_provider}\n"
+        f"Routing output_dir: {output_dir}",
+        border_style="blue",
+    ))
+    if upstream_provider == "mock":
+        console.print("[green]Mock upstream is enabled - local testing costs $0.[/green]")
+
+    uvicorn.run(app, host=host, port=port, log_level="info")
 
 
 @cli.command()

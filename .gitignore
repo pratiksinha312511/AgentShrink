@@ -9,6 +9,10 @@ venv/
 dist/
 build/
 .agentshrink_output/
+.agentshrink/
+.agentshrink_backups/
+.agentshrink_cache/
+.tmp/
 data/synthetic_logs.json
 benchmark/results.json
 benchmark/benchmark_report.md
@@ -20,5 +24,8 @@ out/
 *.gguf
 *.ggml
 agentshrink_ft_output/
+*.out.log
+*.err.log
+dashboard/frontend/.env.local
 .DS_Store
 Thumbs.db

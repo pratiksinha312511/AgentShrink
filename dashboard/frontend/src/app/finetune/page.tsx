@@ -47,6 +47,7 @@ export default function FinetunePage() {
   )
   const selectedCluster = candidates.find((c: any) => c.cluster_id === selectedClusterId) || null
   const selectedBackendInfo = backends.find((backend) => backend.id === selectedBackend) || null
+  const selectedModelInfo = (selectedBackendInfo?.models || []).find((model: any) => model.id === baseModel) || null
   const latestJob = useMemo(() => {
     if (!selectedClusterId) return null
     return jobs.find((job) => Number(job.cluster_id) === Number(selectedClusterId)) || null
@@ -265,6 +266,12 @@ export default function FinetunePage() {
                     <input value={learningRate} onChange={(e) => setLearningRate(e.target.value)} style={fieldInputStyle} />
                   </label>
                 </div>
+
+                {selectedModelInfo?.gated && (
+                  <div style={{ fontSize: 12, color: '#D85A30', marginBottom: 14, lineHeight: 1.7 }}>
+                    This model requires Hugging Face gated access. AgentShrink will validate your HF token and repo access before starting training.
+                  </div>
+                )}
 
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
                   <button onClick={handleStartTraining} disabled={!canStart || starting} style={primaryButtonStyle(!canStart || starting)}>

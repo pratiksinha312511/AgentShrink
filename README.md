@@ -77,6 +77,35 @@ benchmark/run_benchmark.py  Before/after measurement
 
 ## Quick Start
 
+### Product-style local onboarding
+
+```bash
+agentshrink init --project-name "My AgentShrink Project"
+agentshrink doctor
+agentshrink start guide
+```
+
+Then open three terminals:
+
+```bash
+agentshrink start gateway
+agentshrink start backend
+agentshrink start frontend
+```
+
+Point any OpenAI-compatible app at:
+
+```python
+from openai import OpenAI
+client = OpenAI(base_url="http://127.0.0.1:8100/v1", api_key="agentshrink-local")
+```
+
+This uses free `mock` mode by default, so you can validate the full product flow without spending money.
+
+See [docs/USER_QUICKSTART.md](docs/USER_QUICKSTART.md) and [PRODUCT_ROADMAP.md](PRODUCT_ROADMAP.md).
+
+### Research/developer quick start
+
 ```bash
 # 1. Clone and install
 git clone https://github.com/yourusername/agentshrink

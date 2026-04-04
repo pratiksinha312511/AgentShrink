@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip,
   ResponsiveContainer, Cell
@@ -151,6 +152,20 @@ export default function OverviewPage() {
       {analysisMsg && (
         <div className="card" style={{ padding: '10px 14px', marginBottom: 16, fontSize: 12, color: 'var(--text-secondary)' }}>
           {analysisMsg}
+        </div>
+      )}
+
+      {!status?.has_data && (
+        <div className="card" style={{ padding: '14px 16px', marginBottom: 16, background: 'linear-gradient(135deg, #F4EFE2 0%, #FBF8F1 100%)' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+            New to AgentShrink?
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10 }}>
+            Start from the guided onboarding page to launch the stack, copy the right integration snippet, and test the gateway in free mock mode.
+          </div>
+          <Link href="/welcome" style={{ fontSize: 12, color: '#185FA5', fontWeight: 600, textDecoration: 'none' }}>
+            Open Get Started →
+          </Link>
         </div>
       )}
 

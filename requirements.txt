@@ -31,9 +31,13 @@ spacy==3.7.5                # run: python -m spacy download en_core_web_sm
 # --- Dashboard (Phase 5) ---
 streamlit==1.39.0
 plotly==5.24.1
+fastapi==0.115.5
+uvicorn==0.32.0
 
 # --- CLI ---
 click==8.1.7
+openai==1.54.4
+huggingface_hub==0.26.2
 
 # --- Fine-tuning (Phase 6 — Colab only, not local) ---
 # huggingface-hub==0.24.6   # uncomment when doing fine-tuning on Colab
