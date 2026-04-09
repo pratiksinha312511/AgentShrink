@@ -33,6 +33,8 @@ export default function PublicDocsPage() {
           </div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <Link href="/site" style={navLinkStyle}>Landing</Link>
+            <Link href="/auth" style={navLinkStyle}>Sign in</Link>
+            <Link href="/projects" style={navLinkStyle}>Projects</Link>
             <Link href="/welcome" style={navLinkStyle}>Local app</Link>
           </div>
         </div>
@@ -104,6 +106,27 @@ response = requests.post(
               This repo now includes the first real v1 slice: a public-facing landing/docs surface and project-token-based gateway access.
               Full hosted accounts, teams, billing, and hosted dashboard separation are still future work, but the auth and public entry shape are now real.
             </p>
+          </section>
+
+          <section style={sectionCard}>
+            <div style={sectionLabel}>Deployment path</div>
+            <p style={bodyStyle}>
+              Today the cleanest deployment path is still local-first: run the gateway and dashboard from your own machine or workspace,
+              authenticate apps with a project token, and use the same quickstart contract that the future hosted product will keep.
+              The next hosted slice is account-aware projects and a separately deployed public dashboard surface, not a different integration model.
+            </p>
+          </section>
+
+          <section style={sectionCard}>
+            <div style={sectionLabel}>Start with a project</div>
+            <p style={bodyStyle}>
+              The recommended onboarding entry is now project-first: create a project, let AgentShrink assign the local ports and token,
+              then use that project-scoped gateway contract in your app.
+            </p>
+            <div style={{ marginTop: 12, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <Link href="/auth" style={navLinkStyle}>Sign in first</Link>
+              <Link href="/projects" style={navLinkStyle}>Open project setup</Link>
+            </div>
           </section>
         </div>
       </div>

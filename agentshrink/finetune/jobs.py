@@ -1,4 +1,5 @@
 import json
+import os
 import pathlib
 import threading
 import time
@@ -38,10 +39,37 @@ class FineTuneJobStore:
             return json.load(f)
 
     def _write(self, path: pathlib.Path, payload: dict[str, Any]) -> None:
-        tmp = path.with_suffix(".tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2)
-        tmp.replace(path)
+        last_error: Exception | None = None
+        for attempt in range(8):
+            tmp = path.with_name(f"{path.stem}.{uuid.uuid4().hex}.tmp")
+            try:
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(payload, f, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp, path)
+                return
+            except PermissionError as exc:
+                last_error = exc
+                try:
+                    if tmp.exists():
+                        tmp.unlink()
+                except Exception:
+                    pass
+                time.sleep(0.2 * (attempt + 1))
+            except OSError as exc:
+                last_error = exc
+                try:
+                    if tmp.exists():
+                        tmp.unlink()
+                except Exception:
+                    pass
+                if getattr(exc, "winerror", None) == 5:
+                    time.sleep(0.2 * (attempt + 1))
+                    continue
+                raise
+        if last_error:
+            raise last_error
 
     def create_job(
         self,

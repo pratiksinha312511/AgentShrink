@@ -1,11 +1,12 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import ProjectScopeBar from '@/components/ProjectScopeBar'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip,
   ResponsiveContainer, Cell
 } from 'recharts'
-import { fetchStatus, triggerAnalyse } from '@/lib/api'
+import { fetchAnalysisLogs, fetchDashboardSummary, fetchPublicProjectSummary, fetchPublicProjects, triggerAnalyse } from '@/lib/api'
 
 const ANALYSIS_STORAGE_KEY = 'agentshrink.analysis.running'
 
@@ -26,6 +27,9 @@ interface Status {
   analysis_done: boolean
   report_done: boolean
   ready_for_analysis: boolean
+  gateway_event_count?: number
+  latest_timestamp?: string | null
+  source_of_truth?: string
   node_statuses?: Record<string, {
     status: string
     cluster_count: number
@@ -34,11 +38,26 @@ interface Status {
   }>
 }
 
+interface DashboardSummary {
+  status: Status
+  sources: {
+    traffic: { kind: string; ready: boolean; call_count: number; gateway_event_count: number; latest_timestamp?: string | null }
+    analysis: { kind: string; ready: boolean; cluster_count: number }
+    report: { kind: string; ready: boolean }
+    routing: { kind: string; ready: boolean; cluster_count: number }
+  }
+  account?: { name?: string }
+  project?: { name?: string; environment?: string }
+}
+
 export default function OverviewPage() {
   const [status, setStatus]     = useState<Status | null>(null)
+  const [summary, setSummary]   = useState<DashboardSummary | null>(null)
   const [loading, setLoading]   = useState(true)
   const [analysing, setAnalysing] = useState(false)
   const [analysisMsg, setAnalysisMsg] = useState('')
+  const [activeProjectId, setActiveProjectId] = useState('')
+  const [selectedProjectId, setSelectedProjectId] = useState('')
 
   useEffect(() => {
     const persistedAnalysis = window.localStorage.getItem(ANALYSIS_STORAGE_KEY) === 'true'
@@ -49,17 +68,35 @@ export default function OverviewPage() {
 
     const load = async () => {
       try {
-        const nextStatus = await fetchStatus()
+        const projects = await fetchPublicProjects()
+        const nextActiveProjectId = projects?.active_project_id || ''
+        const nextSelectedProjectId = selectedProjectId || nextActiveProjectId
+        const analysisState = await fetchAnalysisLogs().catch(() => ({ running: false }))
+        const nextSummary = nextSelectedProjectId && nextSelectedProjectId !== nextActiveProjectId
+          ? await fetchPublicProjectSummary(nextSelectedProjectId)
+          : await fetchDashboardSummary()
+        const nextStatus = nextSummary.status
+        setActiveProjectId(nextActiveProjectId)
+        setSelectedProjectId(nextSelectedProjectId)
+        setSummary(nextSummary)
         setStatus(nextStatus)
 
         const running = window.localStorage.getItem(ANALYSIS_STORAGE_KEY) === 'true'
-        if (nextStatus.analysis_done && running) {
+        if (nextSelectedProjectId === nextActiveProjectId && nextStatus.analysis_done && running) {
           window.localStorage.removeItem(ANALYSIS_STORAGE_KEY)
           setAnalysing(false)
           setAnalysisMsg('Analysis complete. Cluster data is ready.')
-        } else if (running) {
+        } else if (running && nextSelectedProjectId === nextActiveProjectId && !analysisState?.running) {
+          window.localStorage.removeItem(ANALYSIS_STORAGE_KEY)
+          setAnalysing(false)
+          setAnalysisMsg(nextStatus.analysis_done
+            ? 'Analysis complete. Cluster data is ready.'
+            : 'Previous analysis is no longer running. You can start it again.')
+        } else if (running && nextSelectedProjectId === nextActiveProjectId) {
           setAnalysing(true)
           setAnalysisMsg('Analysis is still running...')
+        } else if (!running && !analysisState?.running && analysing) {
+          setAnalysing(false)
         }
       }
       catch (e) { console.error(e) }
@@ -68,19 +105,19 @@ export default function OverviewPage() {
     load()
     const interval = setInterval(load, 5000)
     return () => clearInterval(interval)
-  }, [])
+  }, [selectedProjectId])
 
   const handleAnalyse = async () => {
     setAnalysing(true)
     window.localStorage.setItem(ANALYSIS_STORAGE_KEY, 'true')
-    setAnalysisMsg('Starting full analysis...')
+    setAnalysisMsg('Starting analysis...')
     try {
       const result = await triggerAnalyse({
         min_cluster_size: 5,
-        skip_eval: false,
-        no_llm_labels: false,
+        skip_eval: true,
+        no_llm_labels: true,
       })
-      setAnalysisMsg(result?.message ?? 'Full analysis started. This will keep running if you change tabs.')
+      setAnalysisMsg(result?.message ?? 'Analysis started. Cluster Map and Report will refresh automatically.')
     } catch (e) {
       console.error(e)
       window.localStorage.removeItem(ANALYSIS_STORAGE_KEY)
@@ -116,6 +153,7 @@ export default function OverviewPage() {
 
   return (
     <div style={{ maxWidth: 900 }}>
+      <ProjectScopeBar selectedProjectId={selectedProjectId} onChange={setSelectedProjectId} />
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <div>
@@ -123,14 +161,14 @@ export default function OverviewPage() {
             Overview
           </h1>
           <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-            customer_support_agent
+            {summary?.project?.name || 'AgentShrink Project'}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span className="badge" style={{ background: phase.color + '22', color: phase.color }}>
             {phase.text}
           </span>
-          {status?.ready_for_analysis && !analysing && (
+          {selectedProjectId === activeProjectId && status?.ready_for_analysis && !analysing && (
             <button
               onClick={handleAnalyse}
               style={{
@@ -143,11 +181,19 @@ export default function OverviewPage() {
               Run Analysis →
             </button>
           )}
-          {analysing && (
+          {selectedProjectId === activeProjectId && analysing && (
             <span style={{ fontSize: 12, color: '#7F77DD' }}>Running...</span>
           )}
         </div>
       </div>
+
+      {selectedProjectId && activeProjectId && selectedProjectId !== activeProjectId && (
+        <div className="card" style={{ padding: '12px 14px', marginBottom: 16 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+            You are viewing a saved project summary. Runtime actions like <strong style={{ color: 'var(--text-primary)' }}>Run Analysis</strong> only work on the active project.
+          </div>
+        </div>
+      )}
 
       {analysisMsg && (
         <div className="card" style={{ padding: '10px 14px', marginBottom: 16, fontSize: 12, color: 'var(--text-secondary)' }}>
@@ -170,6 +216,21 @@ export default function OverviewPage() {
       )}
 
       {status?.has_data && (
+        <div className="card" style={{ padding: '12px 14px', marginBottom: 16, background: 'linear-gradient(135deg, #F7F2E8 0%, #FBF8F1 100%)' }}>
+          <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>
+            Shared dashboard source of truth
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+            All main screens now anchor on the same local project state: <strong style={{ color: 'var(--text-primary)' }}>{status.source_of_truth || 'sqlite:llm_calls'}</strong>.
+            Calls captured: <strong style={{ color: 'var(--text-primary)' }}> {status.total_calls}</strong>,
+            gateway activity: <strong style={{ color: 'var(--text-primary)' }}> {status.gateway_event_count ?? 0}</strong>,
+            clusters available: <strong style={{ color: 'var(--text-primary)' }}> {summary?.sources.analysis.cluster_count ?? 0}</strong>,
+            routing entries: <strong style={{ color: 'var(--text-primary)' }}> {summary?.sources.routing.cluster_count ?? 0}</strong>.
+          </div>
+        </div>
+      )}
+
+      {status?.has_data && (
         <div className="card" style={{ padding: '12px 14px', marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>
             Local-only savings estimate
@@ -182,7 +243,7 @@ export default function OverviewPage() {
             {' '}({status.estimated_savings_pct?.toFixed(1) ?? '0.0'}%).
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>
-            Local calls: {status.local_call_count ?? 0} · fallback/strong-model calls: {status.fallback_call_count ?? 0}
+            Local calls: {status.local_call_count ?? 0} · fallback/strong-model calls: {status.fallback_call_count ?? 0} · latest activity: {status.latest_timestamp ? status.latest_timestamp.slice(0, 19).replace('T', ' ') : 'n/a'}
           </div>
         </div>
       )}

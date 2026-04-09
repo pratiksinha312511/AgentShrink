@@ -1,0 +1,287 @@
+{
+  "tenant_id": "tenant_local_default",
+  "currency": "USD",
+  "entries": [
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 1,
+      "memberships": 2,
+      "total_calls": 99,
+      "total_runs": 8,
+      "captured_at": "2026-04-05T14:05:31Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 1,
+      "memberships": 2,
+      "total_calls": 99,
+      "total_runs": 8,
+      "captured_at": "2026-04-05T14:34:42Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 1,
+      "memberships": 2,
+      "total_calls": 99,
+      "total_runs": 8,
+      "captured_at": "2026-04-05T14:35:22Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 1,
+      "memberships": 2,
+      "total_calls": 99,
+      "total_runs": 8,
+      "captured_at": "2026-04-05T14:36:29Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 1,
+      "memberships": 2,
+      "total_calls": 99,
+      "total_runs": 8,
+      "captured_at": "2026-04-05T15:16:07Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 1,
+      "memberships": 2,
+      "total_calls": 99,
+      "total_runs": 8,
+      "captured_at": "2026-04-05T15:16:19Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 1,
+      "memberships": 2,
+      "total_calls": 99,
+      "total_runs": 8,
+      "captured_at": "2026-04-05T15:16:34Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 1,
+      "memberships": 2,
+      "total_calls": 99,
+      "total_runs": 8,
+      "captured_at": "2026-04-05T15:17:59Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 1,
+      "memberships": 2,
+      "total_calls": 99,
+      "total_runs": 8,
+      "captured_at": "2026-04-05T17:33:47Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 1,
+      "memberships": 2,
+      "total_calls": 99,
+      "total_runs": 8,
+      "captured_at": "2026-04-05T17:52:23Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 1,
+      "memberships": 3,
+      "total_calls": 99,
+      "total_runs": 8,
+      "captured_at": "2026-04-05T17:53:16Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 1,
+      "memberships": 3,
+      "total_calls": 99,
+      "total_runs": 8,
+      "captured_at": "2026-04-05T17:55:19Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 2,
+      "memberships": 3,
+      "total_calls": 99,
+      "total_runs": 8,
+      "captured_at": "2026-04-05T17:55:44Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 2,
+      "memberships": 3,
+      "total_calls": 99,
+      "total_runs": 8,
+      "captured_at": "2026-04-05T17:56:08Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 2,
+      "memberships": 3,
+      "total_calls": 99,
+      "total_runs": 8,
+      "captured_at": "2026-04-05T17:59:42Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 3,
+      "memberships": 3,
+      "total_calls": 99,
+      "total_runs": 8,
+      "captured_at": "2026-04-05T18:00:22Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 3,
+      "memberships": 3,
+      "total_calls": 99,
+      "total_runs": 8,
+      "captured_at": "2026-04-05T18:00:44Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 3,
+      "memberships": 3,
+      "total_calls": 99,
+      "total_runs": 8,
+      "captured_at": "2026-04-05T18:03:22Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 3,
+      "memberships": 3,
+      "total_calls": 99,
+      "total_runs": 8,
+      "captured_at": "2026-04-05T18:05:42Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 3,
+      "memberships": 3,
+      "total_calls": 99,
+      "total_runs": 8,
+      "captured_at": "2026-04-05T18:15:01Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 3,
+      "memberships": 3,
+      "total_calls": 99,
+      "total_runs": 8,
+      "captured_at": "2026-04-05T18:15:19Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 4,
+      "memberships": 3,
+      "total_calls": 99,
+      "total_runs": 8,
+      "captured_at": "2026-04-05T18:26:05Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 4,
+      "memberships": 3,
+      "total_calls": 407,
+      "total_runs": 44,
+      "captured_at": "2026-04-07T16:48:00Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 4,
+      "memberships": 3,
+      "total_calls": 407,
+      "total_runs": 44,
+      "captured_at": "2026-04-07T16:48:13Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 4,
+      "memberships": 3,
+      "total_calls": 407,
+      "total_runs": 44,
+      "captured_at": "2026-04-07T17:49:38Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 4,
+      "memberships": 3,
+      "total_calls": 407,
+      "total_runs": 44,
+      "captured_at": "2026-04-08T12:52:11Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 4,
+      "memberships": 3,
+      "total_calls": 407,
+      "total_runs": 44,
+      "captured_at": "2026-04-08T13:01:55Z"
+    },
+    {
+      "account_id": "acct_local_default",
+      "tenant_id": "tenant_local_default",
+      "plan": "beta",
+      "projects": 4,
+      "memberships": 3,
+      "total_calls": 407,
+      "total_runs": 44,
+      "captured_at": "2026-04-08T13:11:57Z"
+    }
+  ],
+  "last_synced_at": "2026-04-08T13:11:57Z"
+}

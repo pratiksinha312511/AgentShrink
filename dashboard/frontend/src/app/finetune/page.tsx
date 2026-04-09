@@ -48,10 +48,14 @@ export default function FinetunePage() {
   const selectedCluster = candidates.find((c: any) => c.cluster_id === selectedClusterId) || null
   const selectedBackendInfo = backends.find((backend) => backend.id === selectedBackend) || null
   const selectedModelInfo = (selectedBackendInfo?.models || []).find((model: any) => model.id === baseModel) || null
-  const latestJob = useMemo(() => {
+  const clusterJobs = useMemo(() => {
     if (!selectedClusterId) return null
-    return jobs.find((job) => Number(job.cluster_id) === Number(selectedClusterId)) || null
+    return jobs.filter((job) => Number(job.cluster_id) === Number(selectedClusterId))
   }, [jobs, selectedClusterId])
+  const latestJob = clusterJobs?.[0] || null
+  const deployableJob = useMemo(() => {
+    return clusterJobs?.find((job) => job.can_register && ['completed', 'stopped', 'deployed'].includes(job.status)) || null
+  }, [clusterJobs])
 
   useEffect(() => {
     if (candidates.length > 0 && selectedClusterId === null) {
@@ -89,8 +93,8 @@ export default function FinetunePage() {
   const backendModelOptions = selectedBackendInfo?.models || []
   const canStart = !!selectedCluster && !!selectedBackend && !latestJobInFlight(latestJob)
   const canStop = latestJobInFlight(latestJob)
-  const canDeploy = latestJob?.status === 'completed'
-  const deployed = latestJob?.status === 'deployed'
+  const canDeploy = !!deployableJob && ['completed', 'stopped'].includes(deployableJob.status)
+  const deployed = deployableJob?.status === 'deployed'
 
   const handleStartTraining = async () => {
     if (!selectedCluster || !selectedBackend) return
@@ -110,6 +114,11 @@ export default function FinetunePage() {
       })
       setJobs((prev) => [res.job, ...prev.filter((job) => job.job_id !== res.job.job_id)])
       setActionMsg(`Started ${selectedBackend} training for ${selectedCluster.cluster_name}.`)
+      window.setTimeout(() => {
+        fetchFineTuneJobs()
+          .then((data) => setJobs(data.jobs || []))
+          .catch(() => {})
+      }, 700)
     } catch (e: any) {
       setActionMsg(e.message || 'Failed to start fine-tune job.')
     } finally {
@@ -130,18 +139,18 @@ export default function FinetunePage() {
   }
 
   const handleDeploy = async () => {
-    if (!latestJob) return
+    if (!deployableJob) return
     setDeploying(true)
     setActionMsg('')
     try {
       setJobs((prev) =>
         prev.map((job) =>
-          job.job_id === latestJob.job_id
+          job.job_id === deployableJob.job_id
             ? { ...job, status: 'deploying', phase: 'Preparing local deployment', progress: Math.max(8, job.progress || 0) }
             : job
         )
       )
-      const res = await deployFineTuneJob(latestJob.job_id)
+      const res = await deployFineTuneJob(deployableJob.job_id)
       setJobs((prev) => [res.job, ...prev.filter((job) => job.job_id !== res.job.job_id)])
       setActionMsg('Deployment started. Progress and logs will keep updating below.')
     } catch (e: any) {
@@ -159,10 +168,10 @@ export default function FinetunePage() {
       <div className="card" style={{ padding: 24, marginBottom: 16 }}>
         <h1 style={{ fontSize: 22, fontWeight: 500, marginBottom: 8 }}>Fine-tune</h1>
         <p style={{ color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: 12 }}>
-          Start remote fine-tuning from inside AgentShrink, keep the job running in the background, and only deploy/register the model after training completes successfully.
+          Start fine-tuning from inside AgentShrink, keep the job running in the background, and only deploy/register the model after training completes successfully.
         </p>
         <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-          This machine has no local GPU, so training runs on the backend you choose below. Job status is stored on disk, so you can refresh the page or reopen the browser without losing progress.
+          You can train locally on this machine or use a cloud backend. Job status is stored on disk, so you can refresh the page or reopen the browser without losing progress.
         </div>
       </div>
 
@@ -240,7 +249,9 @@ export default function FinetunePage() {
                         {backend.time} - {backend.cost}
                       </div>
                       <div style={{ fontSize: 12, color: backend.configured ? '#1D9E75' : '#D85A30' }}>
-                        {backend.configured ? 'Credentials detected' : backend.setup_note}
+                        {backend.configured
+                          ? (backend.health_detail || (backend.id === 'local' ? 'Local runtime healthy' : 'Credentials detected'))
+                          : (backend.health_detail || backend.setup_note)}
                       </div>
                     </button>
                   ))}
@@ -269,7 +280,13 @@ export default function FinetunePage() {
 
                 {selectedModelInfo?.gated && (
                   <div style={{ fontSize: 12, color: '#D85A30', marginBottom: 14, lineHeight: 1.7 }}>
-                    This model requires Hugging Face gated access. AgentShrink will validate your HF token and repo access before starting training.
+                    This base model requires Hugging Face gated access. AgentShrink will validate your HF token and repo access before starting training, even if you train locally, because the trainer still needs the original base weights once.
+                  </div>
+                )}
+
+                {selectedBackend === 'local' && (
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 14, lineHeight: 1.7 }}>
+                    Local training runs PEFT/LoRA on this machine, saves an adapter in the project output directory, and then deploys that adapter into Ollama after training finishes.
                   </div>
                 )}
 
@@ -323,9 +340,16 @@ export default function FinetunePage() {
                       <Stat label="Recommended model" value={latestJob.recommended_model_name} />
                       <Stat
                         label="Post-train accuracy"
-                        value={latestJob.result?.post_train_accuracy ? `${latestJob.result.post_train_accuracy}%` : 'Pending'}
+                        value={deployableJob?.result?.post_train_accuracy ? `${deployableJob.result.post_train_accuracy}%` : 'Pending'}
                       />
                     </div>
+
+                    {deployableJob && deployableJob.job_id !== latestJob.job_id && (
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.7 }}>
+                        A newer failed retry exists, but AgentShrink still found an older deployable job for this cluster.
+                        Use <code>Deploy & register model</code> to continue from that successful training run.
+                      </div>
+                    )}
 
                     <div style={{ height: 220, marginBottom: 16 }}>
                       <ResponsiveContainer width="100%" height="100%">
@@ -342,7 +366,9 @@ export default function FinetunePage() {
                     <div style={{ background: 'var(--bg-secondary)', borderRadius: 10, padding: 12, maxHeight: 220, overflow: 'auto', fontFamily: 'monospace', fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
                       {(latestJob.logs || []).length
                         ? latestJob.logs.map((log: any, index: number) => `[${log.timestamp}] ${log.message}`).join('\n')
-                        : 'No logs yet.'}
+                        : (latestJobInFlight(latestJob)
+                          ? 'Waiting for the training backend to emit the first log line...'
+                          : 'No logs yet.')}
                     </div>
                   </>
                 ) : (

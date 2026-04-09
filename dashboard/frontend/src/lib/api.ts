@@ -1,4 +1,5 @@
 const API = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
+const WS_API = API.replace(/^http:/, 'ws:').replace(/^https:/, 'wss:')
 
 async function readJsonOrThrow(r: Response, fallback: string) {
   let data: any = null
@@ -12,6 +13,11 @@ async function readJsonOrThrow(r: Response, fallback: string) {
 export async function fetchStatus() {
   const r = await fetch(`${API}/api/status`, { cache: 'no-store' })
   return readJsonOrThrow(r, 'Failed to fetch status')
+}
+
+export async function fetchDashboardSummary() {
+  const r = await fetch(`${API}/api/dashboard/summary`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch dashboard summary')
 }
 
 export async function fetchClusters() {
@@ -43,6 +49,234 @@ export async function fetchGatewayActivity(limit = 50) {
 export async function fetchProductConfig() {
   const r = await fetch(`${API}/api/product/config`, { cache: 'no-store' })
   return readJsonOrThrow(r, 'Failed to fetch product config')
+}
+
+export async function fetchProductProviders() {
+  const r = await fetch(`${API}/api/product/providers`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch provider registry')
+}
+
+export async function fetchProductProviderPresets() {
+  const r = await fetch(`${API}/api/product/provider-presets`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch provider presets')
+}
+
+export async function saveProductProvider(provider: any) {
+  const r = await fetch(`${API}/api/product/providers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(provider),
+  })
+  return readJsonOrThrow(r, 'Failed to save provider config')
+}
+
+export async function deleteProductProvider(providerId: string) {
+  const r = await fetch(`${API}/api/product/providers/${encodeURIComponent(providerId)}`, {
+    method: 'DELETE',
+  })
+  return readJsonOrThrow(r, 'Failed to delete provider config')
+}
+
+export async function testProductProvider(providerId: string) {
+  const r = await fetch(`${API}/api/product/providers/${encodeURIComponent(providerId)}/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  return readJsonOrThrow(r, 'Failed to test provider connection')
+}
+
+export async function fetchProductProviderModels(providerId: string) {
+  const r = await fetch(`${API}/api/product/providers/${encodeURIComponent(providerId)}/models`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to discover provider models')
+}
+
+export async function fetchPublicIdentity() {
+  const r = await fetch(`${API}/api/public/identity`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch public identity')
+}
+
+export async function fetchPublicSession() {
+  const r = await fetch(`${API}/api/public/session`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch public session')
+}
+
+export async function fetchPublicInvites() {
+  const r = await fetch(`${API}/api/public/invites`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch invites')
+}
+
+export async function loginPublicSession(payload: { user_name: string; user_email: string }) {
+  const r = await fetch(`${API}/api/public/session/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return readJsonOrThrow(r, 'Failed to create session')
+}
+
+export async function requestPublicMagicLink(payload: { user_email: string; user_name?: string }) {
+  const r = await fetch(`${API}/api/public/session/magic-link/request`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return readJsonOrThrow(r, 'Failed to request magic link')
+}
+
+export async function consumePublicMagicLink(payload: { token: string }) {
+  const r = await fetch(`${API}/api/public/session/magic-link/consume`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return readJsonOrThrow(r, 'Failed to consume magic link')
+}
+
+export async function fetchPublicAuthProviders() {
+  const r = await fetch(`${API}/api/public/auth/providers`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch auth providers')
+}
+
+export async function startPublicExternalAuth(payload: { redirect_uri?: string } = {}) {
+  const r = await fetch(`${API}/api/public/auth/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return readJsonOrThrow(r, 'Failed to start external auth')
+}
+
+export async function completePublicExternalAuth(payload: { code: string; redirect_uri?: string }) {
+  const r = await fetch(`${API}/api/public/auth/callback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return readJsonOrThrow(r, 'Failed to complete external auth')
+}
+
+export async function logoutPublicSession() {
+  const r = await fetch(`${API}/api/public/session/logout`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  return readJsonOrThrow(r, 'Failed to clear session')
+}
+
+export async function acceptPublicInvite(token: string, payload: { user_name?: string; user_email?: string } = {}) {
+  const r = await fetch(`${API}/api/public/invites/${encodeURIComponent(token)}/accept`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return readJsonOrThrow(r, 'Failed to accept invite')
+}
+
+export async function fetchPublicProjects() {
+  const r = await fetch(`${API}/api/public/projects`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch public projects')
+}
+
+export async function fetchPublicTeams() {
+  const r = await fetch(`${API}/api/public/teams`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch public teams')
+}
+
+export async function createPublicTeam(payload: { name: string; slug?: string }) {
+  const r = await fetch(`${API}/api/public/teams`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return readJsonOrThrow(r, 'Failed to create team')
+}
+
+export async function invitePublicTeamMember(teamId: string, payload: { user_name: string; user_email: string; role?: string }) {
+  const r = await fetch(`${API}/api/public/teams/${encodeURIComponent(teamId)}/invite`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return readJsonOrThrow(r, 'Failed to invite team member')
+}
+
+export async function updatePublicTeamMemberRole(teamId: string, userEmail: string, payload: { role: string }) {
+  const r = await fetch(`${API}/api/public/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(userEmail)}/role`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return readJsonOrThrow(r, 'Failed to update team role')
+}
+
+export async function createPublicProject(payload: { name: string; environment?: string; upstream_provider?: string }) {
+  const r = await fetch(`${API}/api/public/projects`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return readJsonOrThrow(r, 'Failed to create project')
+}
+
+export async function activatePublicProject(projectId: string) {
+  const r = await fetch(`${API}/api/public/projects/${encodeURIComponent(projectId)}/activate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  return readJsonOrThrow(r, 'Failed to switch project')
+}
+
+export async function fetchPublicProjectActivity(projectId: string, limit = 20) {
+  const r = await fetch(`${API}/api/public/projects/${encodeURIComponent(projectId)}/activity?limit=${limit}`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch project activity')
+}
+
+export async function fetchPublicProjectRouting(projectId: string, limit = 50) {
+  const r = await fetch(`${API}/api/public/projects/${encodeURIComponent(projectId)}/routing?limit=${limit}`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch project routing')
+}
+
+export async function fetchPublicProjectReport(projectId: string) {
+  const r = await fetch(`${API}/api/public/projects/${encodeURIComponent(projectId)}/report`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch project report')
+}
+
+export async function fetchPublicProjectSummary(projectId: string) {
+  const r = await fetch(`${API}/api/public/projects/${encodeURIComponent(projectId)}/summary`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch project summary')
+}
+
+export async function fetchPublicProjectClusters(projectId: string) {
+  const r = await fetch(`${API}/api/public/projects/${encodeURIComponent(projectId)}/clusters`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch project clusters')
+}
+
+export async function fetchHostedConfig() {
+  const r = await fetch(`${API}/api/public/hosted/config`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch hosted config')
+}
+
+export async function saveHostedConfig(config: any) {
+  const r = await fetch(`${API}/api/public/hosted/config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ config }),
+  })
+  return readJsonOrThrow(r, 'Failed to save hosted config')
+}
+
+export async function fetchPublicBilling() {
+  const r = await fetch(`${API}/api/public/billing`, { cache: 'no-store' })
+  return readJsonOrThrow(r, 'Failed to fetch billing')
+}
+
+export async function createPublicBillingCheckout(payload: { return_url?: string } = {}) {
+  const r = await fetch(`${API}/api/public/billing/checkout`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return readJsonOrThrow(r, 'Failed to create billing checkout')
 }
 
 export async function saveProductConfig(config: any) {
@@ -236,7 +470,7 @@ export function createRoutingWebSocket(
   onMessage: (data: any) => void,
   onClose?: () => void
 ): WebSocket {
-  const ws = new WebSocket(`ws://localhost:8000/ws/routing-trace`)
+  const ws = new WebSocket(`${WS_API}/ws/routing-trace`)
   ws.onmessage = e => {
     try { onMessage(JSON.parse(e.data)) }
     catch {}

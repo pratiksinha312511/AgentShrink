@@ -1,7 +1,8 @@
 'use client'
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { applyReport, createRoutingWebSocket, fetchAnalysisLogs, fetchReport, fetchRoutingSimulation, rollbackRoutingConfig } from '@/lib/api'
+import ProjectScopeBar from '@/components/ProjectScopeBar'
+import { applyReport, createRoutingWebSocket, fetchAnalysisLogs, fetchPublicProjectReport, fetchPublicProjects, fetchReport, fetchRoutingSimulation, rollbackRoutingConfig } from '@/lib/api'
 
 const REC_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   replace_now: { label: 'Replace now', color: '#27500A', bg: '#EAF3DE' },
@@ -37,21 +38,47 @@ function ReportPageContent() {
   const [rollingBack, setRollingBack] = useState(false)
   const [logLines, setLogLines] = useState<Array<{ line: string; stream: string; timestamp?: number }>>([])
   const [analysisRunning, setAnalysisRunning] = useState(false)
+  const [selectedProjectId, setSelectedProjectId] = useState('')
+  const [activeProjectId, setActiveProjectId] = useState('')
+  const [selectedProjectName, setSelectedProjectName] = useState('AgentShrink Project')
   const terminalEndRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
-    fetchReport(Number.isFinite(targetedClusterId) ? targetedClusterId : undefined)
-      .then(setReport)
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false))
+    fetchPublicProjects().then((data) => {
+      const activeId = data.active_project_id || ''
+      setSelectedProjectId(activeId)
+      setActiveProjectId(activeId)
+      const active = (data.projects || []).find((project: any) => project.id === activeId)
+      setSelectedProjectName(active?.name || 'AgentShrink Project')
+    }).catch(() => {})
   }, [targetedClusterId])
 
   useEffect(() => {
+    if (!selectedProjectId) return
+    setLoading(true)
+    if (selectedProjectId === activeProjectId || !activeProjectId) {
+      fetchReport(Number.isFinite(targetedClusterId) ? targetedClusterId : undefined)
+        .then(setReport)
+        .catch(e => setError(e.message))
+        .finally(() => setLoading(false))
+      return
+    }
+    fetchPublicProjectReport(selectedProjectId)
+      .then((data) => {
+        setReport(data.report)
+        setSelectedProjectName(data.project?.name || 'Selected project')
+      })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [targetedClusterId, selectedProjectId, activeProjectId])
+
+  useEffect(() => {
     if (Number.isFinite(targetedClusterId)) return
+    if (selectedProjectId && activeProjectId && selectedProjectId !== activeProjectId) return
     fetchRoutingSimulation()
       .then(setSimulation)
       .catch(e => setSimulationError(e.message))
-  }, [targetedClusterId])
+  }, [targetedClusterId, selectedProjectId, activeProjectId])
 
   useEffect(() => {
     fetchAnalysisLogs()
@@ -134,17 +161,21 @@ function ReportPageContent() {
 
   return (
     <div style={{ maxWidth: 900 }}>
+      <ProjectScopeBar selectedProjectId={selectedProjectId} onChange={setSelectedProjectId} />
+
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>
             {Number.isFinite(targetedClusterId) ? `Cluster ${targetedClusterId} Report` : 'Replaceability Report'}
           </h1>
           <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-            Generated at {report?.generated_at?.slice(0, 10)}
+            {selectedProjectId && activeProjectId && selectedProjectId !== activeProjectId
+              ? `Viewing saved report scope for ${selectedProjectName}`
+              : `Generated at ${report?.generated_at?.slice(0, 10)}`}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {!Number.isFinite(targetedClusterId) && (
+          {!Number.isFinite(targetedClusterId) && !(selectedProjectId && activeProjectId && selectedProjectId !== activeProjectId) && (
             <button
               onClick={handleRollback}
               disabled={rollingBack || !(simulation?.has_backup)}
@@ -159,14 +190,14 @@ function ReportPageContent() {
           )}
           <button
             onClick={handleApply}
-            disabled={applying}
+            disabled={applying || !!(selectedProjectId && activeProjectId && selectedProjectId !== activeProjectId)}
             style={{
               background: '#1D9E75', color: 'white', border: 'none',
               borderRadius: 8, padding: '8px 18px', fontSize: 12,
               fontWeight: 500, cursor: 'pointer', opacity: applying ? 0.7 : 1,
             }}
           >
-            {applying ? 'Applying...' : 'Apply Report ->'}
+            {applying ? 'Applying...' : (selectedProjectId && activeProjectId && selectedProjectId !== activeProjectId) ? 'Apply only on active project' : 'Apply Report ->'}
           </button>
         </div>
       </div>
@@ -227,40 +258,8 @@ function ReportPageContent() {
                   <div className="metric-label">rollback available</div>
                 </div>
               </div>
-              <div style={{ display: 'grid', gap: 8 }}>
-                {(simulation.changes || []).filter((c: any) => c.change_type !== 'unchanged').slice(0, 8).map((change: any) => (
-                  <div key={change.cluster_id} style={{ background: 'var(--bg-secondary)', borderRadius: 8, padding: '10px 12px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
-                      <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{change.cluster_name}</div>
-                      <span className="badge" style={{
-                        background: change.change_type === 'changed' ? '#FAEEDA' : '#EEEDFE',
-                        color: change.change_type === 'changed' ? '#633806' : '#3C3489',
-                      }}>
-                        {change.change_type}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-                      <div>Before: <code>{change.before ? `${change.before.provider}:${change.before.model}` : 'none'}</code></div>
-                      <div>After: <code>{change.after ? `${change.after.provider}:${change.after.model}` : 'none'}</code></div>
-                    </div>
-                    {change.explanation && (
-                      <div style={{
-                        marginTop: 8,
-                        fontSize: 12,
-                        color: 'var(--text-secondary)',
-                        lineHeight: 1.6,
-                        overflowWrap: 'anywhere',
-                      }}>
-                        Why: {change.explanation}
-                      </div>
-                    )}
-                  </div>
-                ))}
-                {(simulation.changes || []).filter((c: any) => c.change_type !== 'unchanged').length === 0 && (
-                  <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
-                    Current routing config already matches the proposed report output.
-                  </div>
-                )}
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                Routing simulation now shows the top-level impact summary only. Apply the report to persist the proposed routing changes, or use rollback if a previous config backup exists.
               </div>
             </>
           ) : (

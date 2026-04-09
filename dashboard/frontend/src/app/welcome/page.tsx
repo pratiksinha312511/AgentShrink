@@ -4,6 +4,8 @@ import Link from 'next/link'
 import { fetchProductConfig, fetchProductDoctor, fetchProductStack, testProductGateway } from '@/lib/api'
 
 type ProductConfig = {
+  account?: { id?: string; name?: string; slug?: string }
+  project?: { id?: string; name?: string; slug?: string; environment?: string }
   project_name: string
   db_path: string
   output_dir: string
@@ -241,7 +243,10 @@ export default function WelcomePage() {
         <div className="card" style={{ padding: 20 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 12 }}>Your local project</div>
           <div style={{ display: 'grid', gap: 10, fontSize: 13 }}>
-            <div><strong>Project:</strong> {config?.project_name || 'Loading...'}</div>
+            <div><strong>Account:</strong> {config?.account?.name || 'Local AgentShrink Workspace'}</div>
+            <div><strong>Project:</strong> {config?.project?.name || config?.project_name || 'Loading...'}</div>
+            <div><strong>Project slug:</strong> <code>{config?.project?.slug || 'agentshrink-project'}</code></div>
+            <div><strong>Environment:</strong> <code>{config?.project?.environment || 'local'}</code></div>
             <div><strong>Gateway URL:</strong> <code>{gatewayUrl}</code></div>
             <div><strong>DB Path:</strong> <code>{config?.db_path || 'Loading...'}</code></div>
             <div><strong>Upstream:</strong> <code>{config?.gateway.upstream_provider || 'mock'}</code></div>
@@ -321,6 +326,15 @@ export default function WelcomePage() {
           </div>
         </div>
       )}
+
+      <div className="card" style={{ padding: 20, marginBottom: 20 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 12 }}>Canonical first-run quickstart</div>
+        <CodeBlock text={`agentshrink init --project-name "${config?.project?.name || config?.project_name || 'My AgentShrink Project'}"\nagentshrink doctor\nagentshrink stack up`} />
+        <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.7 }}>
+          This is the single canonical local path now: initialize once, run doctor once, then use one foreground stack supervisor.
+          After that, open <code>/welcome</code>, copy the right integration snippet, and send traffic through the gateway.
+        </div>
+      </div>
 
       <div className="card" style={{ padding: 20, marginBottom: 20 }}>
         <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 12 }}>Live stack status</div>

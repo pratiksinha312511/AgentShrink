@@ -23,6 +23,8 @@ export default function PublicLandingPage() {
           </div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <Link href="/site/docs" style={navLinkStyle}>Docs</Link>
+            <Link href="/auth" style={navLinkStyle}>Sign in</Link>
+            <Link href="/projects" style={navLinkStyle}>Create Project</Link>
             <Link href="/welcome" style={navLinkStyle}>Open Local App</Link>
           </div>
         </div>
@@ -47,6 +49,8 @@ export default function PublicLandingPage() {
               </p>
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 18 }}>
                 <Link href="/site/docs" style={primaryCtaStyle}>Read the docs</Link>
+                <Link href="/auth" style={secondaryCtaStyle}>Sign in</Link>
+                <Link href="/projects" style={secondaryCtaStyle}>Create a project</Link>
                 <Link href="/welcome" style={secondaryCtaStyle}>Try the local product</Link>
               </div>
             </div>
@@ -110,6 +114,21 @@ export default function PublicLandingPage() {
                 This v1 slice introduces the public product shape: marketing/docs surfaces and project-token-based gateway access,
                 which is the right boundary for a future hosted dashboard and hosted gateway.
               </div>
+            </div>
+          </div>
+        </section>
+
+        <section style={{ ...sectionCard, marginBottom: 18 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-tertiary)', marginBottom: 12 }}>
+            New project onboarding
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+            <div style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.8 }}>
+              Start from a project, not from raw config files. The hosted-style flow now lets you create a project, assign it
+              to a team, get a project token, and then send traffic through the gateway using that single project-scoped contract.
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
+              <Link href="/projects" style={primaryCtaStyle}>Open project setup</Link>
             </div>
           </div>
         </section>

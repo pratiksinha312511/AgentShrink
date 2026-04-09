@@ -440,16 +440,19 @@ export default function ModelsPage() {
 
                 <button
                   onClick={() => remove(model.id)}
+                  disabled={model.source === 'default'}
                   style={{
                     background: 'transparent',
                     border: '0.5px solid var(--border)',
                     borderRadius: 10,
                     padding: '9px 14px',
-                    cursor: 'pointer',
-                    color: '#A32D2D',
+                    cursor: model.source === 'default' ? 'not-allowed' : 'pointer',
+                    color: model.source === 'default' ? 'var(--text-tertiary)' : '#A32D2D',
                     fontSize: 13,
                     flexShrink: 0,
+                    opacity: model.source === 'default' ? 0.7 : 1,
                   }}
+                  title={model.source === 'default' ? 'Default catalog models cannot be removed. Disable or edit them instead.' : 'Remove model'}
                 >
                   Remove
                 </button>

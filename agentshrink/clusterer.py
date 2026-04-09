@@ -259,7 +259,15 @@ class TaskClusterer:
         cluster_labels = {}
 
         if use_llm:
-            cluster_labels = self._llm_label_clusters(df, labels, unique_labels)
+            try:
+                cluster_labels = self._llm_label_clusters(df, labels, unique_labels)
+            except Exception as e:
+                logger.warning(
+                    "LLM cluster labelling could not be initialized (%s). "
+                    "Falling back to heuristic labels so analysis can continue.",
+                    e,
+                )
+                cluster_labels = self._heuristic_label_clusters(df, labels, unique_labels)
         else:
             cluster_labels = self._heuristic_label_clusters(df, labels, unique_labels)
 

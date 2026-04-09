@@ -42,6 +42,17 @@ from agentshrink.project_config import get_judge_min_interval_s, get_remote_min_
 console = Console()
 
 
+def _project_python_executable() -> str:
+    project_root = pathlib.Path.cwd().resolve()
+    if os.name == "nt":
+        candidate = project_root / "venv" / "Scripts" / "python.exe"
+    else:
+        candidate = project_root / "venv" / "bin" / "python"
+    if candidate.exists():
+        return str(candidate.resolve())
+    return sys.executable
+
+
 def _frontend_command(frontend_dir: pathlib.Path, port: int) -> list[str]:
     next_cmd = frontend_dir / "node_modules" / ".bin" / ("next.cmd" if os.name == "nt" else "next")
     if next_cmd.exists():
@@ -359,7 +370,7 @@ def cli():
     "--upstream-provider",
     default="mock",
     show_default=True,
-    type=click.Choice(["mock", "openai", "nvidia", "ollama", "huggingface"]),
+    type=str,
 )
 def init(project_name, db_path, output_dir, gateway_port, backend_port, frontend_port, upstream_provider):
     """Create a local AgentShrink project manifest for easier startup."""
@@ -447,7 +458,7 @@ def start_backend():
     )
     raise SystemExit(
         subprocess.call(
-            [sys.executable, "-m", "uvicorn", "main:app", "--port", port],
+            [_project_python_executable(), "-m", "uvicorn", "main:app", "--port", port],
             cwd=str(backend_dir),
             env=env,
         )
@@ -487,12 +498,12 @@ def start_guide():
     gateway_url = f"http://{config['gateway']['host']}:{config['gateway']['port']}/v1"
     panel = Panel.fit(
         "[bold]AgentShrink Quickstart[/bold]\n"
-        f"1. agentshrink start gateway\n"
-        f"2. agentshrink start backend\n"
-        f"3. agentshrink start frontend\n\n"
+        f"1. agentshrink init --project-name \"{config.get('project_name', 'My AgentShrink Project')}\"\n"
+        f"2. agentshrink doctor\n"
+        f"3. agentshrink stack up\n\n"
         f"Gateway URL: {gateway_url}\n"
         f"DB Path: {config['db_path']}\n"
-        f"Dashboard: http://localhost:{config['dashboard_frontend']['port']}",
+        f"Dashboard: http://localhost:{config['dashboard_frontend']['port']}/welcome",
         border_style="green",
     )
     console.print(panel)
@@ -543,14 +554,17 @@ def stack_up(skip_frontend):
         console.print("[red]AgentShrink stack could not start because one or more ports are already in use.[/red]")
         for name, host, port in busy_ports:
             console.print(f"  {name}: {host}:{port}")
-        console.print("Stop the conflicting process or run [bold]agentshrink init[/bold] with different ports, then try again.")
+        console.print("Recommended recovery:")
+        console.print("  1. [bold]agentshrink stack status[/bold]")
+        console.print("  2. [bold]agentshrink stack down[/bold] if an older local stack is still recorded")
+        console.print("  3. Or run [bold]agentshrink init[/bold] again with different ports")
         return
 
     try:
         gateway_proc, gateway_info = _launch_supervised_process(
             name="gateway",
             command=[
-                sys.executable, "-m", "agentshrink.cli", "gateway",
+                _project_python_executable(), "-m", "agentshrink.cli", "gateway",
                 "--host", config["gateway"]["host"],
                 "--port", str(config["gateway"]["port"]),
                 "--upstream-provider", config["gateway"]["upstream_provider"],
@@ -569,7 +583,7 @@ def stack_up(skip_frontend):
         backend_proc, backend_info = _launch_supervised_process(
             name="backend",
             command=[
-                sys.executable,
+                _project_python_executable(),
                 "-m",
                 "uvicorn",
                 "main:app",
@@ -883,7 +897,7 @@ def analyse(db, output_dir, no_llm_labels, skip_eval, min_cluster_size, cluster_
     "--upstream-provider",
     default=lambda: os.getenv("AGENTSHRINK_GATEWAY_UPSTREAM_PROVIDER", "mock"),
     show_default="mock",
-    type=click.Choice(["mock", "openai", "nvidia", "ollama", "huggingface"]),
+    type=str,
     help="Remote upstream for unmatched/fallback calls. Use 'mock' for free local testing.",
 )
 @click.option("--output-dir", default=".agentshrink_output", show_default=True, help="Routing config output directory")
@@ -904,11 +918,23 @@ def gateway(host, port, upstream_provider, output_dir, db, confidence_threshold)
         or ((product_config.get("defaults") or {}).get("gateway_api_key"))
         or "agentshrink-local"
     )
+    configured_fallback_provider = (
+        os.getenv("AGENTSHRINK_GATEWAY_UPSTREAM_PROVIDER")
+        or upstream_provider
+        or ((product_config.get("gateway") or {}).get("upstream_provider"))
+        or "mock"
+    )
+    configured_fallback_model = (
+        os.getenv("AGENTSHRINK_GATEWAY_FALLBACK_MODEL")
+        or ((product_config.get("defaults") or {}).get("gateway_model"))
+        or os.getenv("TARGET_AGENT_OPENAI_MODEL")
+        or "gpt-4o-mini"
+    )
     router = GatewayRouter(
         output_dir=output_dir,
         confidence_threshold=confidence_threshold,
-        fallback_provider=upstream_provider,
-        fallback_model=os.getenv("AGENTSHRINK_GATEWAY_FALLBACK_MODEL", os.getenv("TARGET_AGENT_OPENAI_MODEL", "gpt-4o-mini")),
+        fallback_provider=configured_fallback_provider,
+        fallback_model=configured_fallback_model,
     )
     upstream = OpenAICompatibleUpstream(provider=upstream_provider)
     app = create_gateway_app(upstream=upstream, db_path=db_path, router=router, expected_api_key=expected_api_key)

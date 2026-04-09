@@ -18,6 +18,10 @@ def main() -> int:
     os.environ["HF_HOME"] = str(cache_root)
     os.environ["HUGGINGFACE_HUB_CACHE"] = str(cache_root / "hub")
     os.environ["TRANSFORMERS_CACHE"] = str(cache_root / "transformers")
+    os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+    os.environ["HF_HUB_DISABLE_XET"] = "1"
+    os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "60")
+    os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "1800")
 
     import torch
     from peft import AutoPeftModelForCausalLM
@@ -28,6 +32,13 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Loading adapter from {adapter_dir}", flush=True)
+    print(f"Using Hugging Face cache root {cache_root}", flush=True)
+    print(
+        f"HF transfer settings: disable_xet={os.environ.get('HF_HUB_DISABLE_XET')} "
+        f"etag_timeout={os.environ.get('HF_HUB_ETAG_TIMEOUT')} "
+        f"download_timeout={os.environ.get('HF_HUB_DOWNLOAD_TIMEOUT')}",
+        flush=True,
+    )
     model = AutoPeftModelForCausalLM.from_pretrained(
         str(adapter_dir),
         low_cpu_mem_usage=True,

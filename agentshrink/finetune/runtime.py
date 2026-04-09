@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
 from difflib import SequenceMatcher
 from statistics import mean
 from typing import Any, Callable
@@ -13,7 +16,25 @@ from typing import Any, Callable
 from agentshrink.finetune.jobs import recommended_display_name, recommended_model_name
 
 
+ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+
+
+def _clean_console_line(value: str) -> str:
+    cleaned = ANSI_ESCAPE_RE.sub("", value or "")
+    cleaned = cleaned.replace("\r", " ").replace("\u001b", "")
+    return " ".join(cleaned.split())
+
+
 BACKEND_OPTIONS = [
+    {
+        "id": "local",
+        "label": "Local machine",
+        "subtitle": "PEFT / LoRA on this machine",
+        "time": "Hardware-dependent",
+        "cost": "Local compute only",
+        "recommended": False,
+        "setup_note": "Needs local fine-tune deps; HF_TOKEN only for gated base models",
+    },
     {
         "id": "modal",
         "label": "Modal.com",
@@ -36,6 +57,36 @@ BACKEND_OPTIONS = [
 
 
 BACKEND_MODELS = {
+    "local": [
+        {
+            "id": "meta-llama/Llama-3.2-3B-Instruct",
+            "label": "Llama 3.2 3B (HF gated access)",
+            "deploy_base_model": "llama3.2:3b",
+            "gated": True,
+            "requires_hf_token": True,
+        },
+        {
+            "id": "Qwen/Qwen2.5-1.5B-Instruct",
+            "label": "Qwen 2.5 1.5B",
+            "deploy_base_model": "qwen2.5:1.5b",
+            "gated": False,
+            "requires_hf_token": False,
+        },
+        {
+            "id": "HuggingFaceTB/SmolLM2-1.7B-Instruct",
+            "label": "SmolLM2 1.7B",
+            "deploy_base_model": "smollm2:1.7b",
+            "gated": False,
+            "requires_hf_token": False,
+        },
+        {
+            "id": "microsoft/Phi-3.5-mini-instruct",
+            "label": "Phi 3.5 Mini",
+            "deploy_base_model": "phi3.5:3.8b",
+            "gated": False,
+            "requires_hf_token": False,
+        },
+    ],
     "modal": [
         {
             "id": "meta-llama/Llama-3.2-3B-Instruct",
@@ -96,7 +147,14 @@ def backend_statuses() -> list[dict[str, Any]]:
     result = []
     for backend in BACKEND_OPTIONS:
         item = dict(backend)
-        if backend["id"] == "modal":
+        if backend["id"] == "local":
+            configured, detail = _local_backend_ready()
+            item["configured"] = configured
+            if detail:
+                item["health_detail"] = detail
+                if not configured:
+                    item["setup_note"] = detail
+        elif backend["id"] == "modal":
             item["configured"] = bool(os.getenv("MODAL_TOKEN_ID", "").strip() and os.getenv("MODAL_TOKEN_SECRET", "").strip())
         elif backend["id"] == "huggingface":
             item["configured"] = bool(os.getenv("HF_TOKEN", "").strip())
@@ -105,6 +163,39 @@ def backend_statuses() -> list[dict[str, Any]]:
         item["models"] = BACKEND_MODELS.get(backend["id"], [])
         result.append(item)
     return result
+
+
+def _local_backend_ready() -> bool:
+    check_code = (
+        "import torch\n"
+        "from datasets import Dataset\n"
+        "from peft import LoraConfig\n"
+        "from transformers import AutoTokenizer\n"
+        "print('ok')\n"
+    )
+    env = os.environ.copy()
+    env.setdefault("PYTHONNOUSERSITE", "1")
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", check_code],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=90,
+            env=env,
+        )
+    except Exception as exc:
+        return False, f"Local trainer health check could not start: {type(exc).__name__}: {exc}"
+
+    if result.returncode == 0:
+        return True, "Local trainer runtime is healthy in the active backend interpreter."
+
+    stderr = (result.stderr or "").strip()
+    stdout = (result.stdout or "").strip()
+    detail = stderr or stdout or f"Health check failed with exit code {result.returncode}."
+    detail = detail.splitlines()[-1]
+    return False, f"Local trainer runtime failed in this backend interpreter: {detail}"
 
 
 def choose_default_model(backend: str) -> dict[str, Any]:
@@ -181,14 +272,21 @@ def deploy_to_ollama(
         if not adapter_weights.exists():
             raise FileNotFoundError(f"Expected adapter weights not found at {adapter_weights}")
         merged_model_dir = deploy_dir / "merged_model"
-        if merged_model_dir.exists():
-            shutil.rmtree(merged_model_dir)
-        _merge_adapter_with_base_model(
-            base_model=deploy_base_model,
-            adapter_dir=target_adapter_dir,
-            output_dir=merged_model_dir,
-            on_log=on_log,
-        )
+        merged_safetensors = list(merged_model_dir.glob("*.safetensors")) if merged_model_dir.exists() else []
+        if merged_model_dir.exists() and merged_safetensors:
+            if on_log:
+                on_log(
+                    f"Reusing existing merged model at {merged_model_dir} instead of merging again."
+                )
+        else:
+            if merged_model_dir.exists():
+                shutil.rmtree(merged_model_dir)
+            _merge_adapter_with_base_model(
+                base_model=deploy_base_model,
+                adapter_dir=target_adapter_dir,
+                output_dir=merged_model_dir,
+                on_log=on_log,
+            )
         modelfile = deploy_dir / "Modelfile"
         modelfile.write_text(
             "FROM ./merged_model\n",
@@ -207,16 +305,52 @@ def deploy_to_ollama(
         on_log(f"Creating Ollama model '{model_name}' from {modelfile}")
 
     cmd = ["ollama", "create", model_name, "-f", "Modelfile"]
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(deploy_dir))
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "ollama create failed")
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=str(deploy_dir),
+    )
+    stdout_lines: list[str] = []
+    last_logged_line = ""
+    assert process.stdout is not None
+    last_heartbeat = time.time()
+    while True:
+        line = process.stdout.readline()
+        if line:
+            clean = _clean_console_line(line)
+            if clean:
+                if clean == last_logged_line:
+                    last_heartbeat = time.time()
+                    continue
+                last_logged_line = clean
+                stdout_lines.append(clean)
+                if on_log:
+                    on_log(clean)
+            last_heartbeat = time.time()
+            continue
+        if process.poll() is not None:
+            break
+        if time.time() - last_heartbeat >= 30:
+            if on_log:
+                on_log("Ollama is still importing the merged model...")
+            last_heartbeat = time.time()
+        time.sleep(1.0)
+
+    result_code = process.wait()
+    stdout_text = "\n".join(stdout_lines).strip()
+    if result_code != 0:
+        raise RuntimeError(stdout_text or "ollama create failed")
 
     registered_name = f"{model_name}:latest"
     return {
         "ollama_name": registered_name,
         "display_name": display_name,
         "deploy_dir": str(deploy_dir),
-        "stdout": result.stdout.strip(),
+        "stdout": stdout_text,
     }
 
 
@@ -281,7 +415,13 @@ def _merge_adapter_with_base_model(
     output_dir: pathlib.Path,
     on_log: Callable[[str], None] | None = None,
 ) -> None:
-    cache_root = output_dir.parent / "_hf_cache"
+    configured_cache_root = os.getenv("AGENTSHRINK_HF_CACHE_ROOT", "").strip()
+    if configured_cache_root:
+        cache_root = pathlib.Path(configured_cache_root).expanduser()
+    else:
+        # Keep this path short on Windows; deep Hugging Face cache paths can exceed
+        # practical limits during adapter merge/download flows.
+        cache_root = pathlib.Path(tempfile.gettempdir()) / "agentshrink_hf"
     cache_root.mkdir(parents=True, exist_ok=True)
     hf_base_model = _ollama_base_to_hf_model(base_model)
     if on_log:
@@ -289,10 +429,15 @@ def _merge_adapter_with_base_model(
             f"Merging adapter into base model {hf_base_model}. "
             "This can take a few minutes on CPU and may download base-model files from Hugging Face on first run."
         )
+        on_log(f"Using Hugging Face cache root: {cache_root}")
     env = os.environ.copy()
     env["HF_HOME"] = str(cache_root)
     env["HUGGINGFACE_HUB_CACHE"] = str(cache_root / "hub")
     env["TRANSFORMERS_CACHE"] = str(cache_root / "transformers")
+    env["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+    env["HF_HUB_DISABLE_XET"] = "1"
+    env["HF_HUB_ETAG_TIMEOUT"] = os.getenv("HF_HUB_ETAG_TIMEOUT", "60")
+    env["HF_HUB_DOWNLOAD_TIMEOUT"] = os.getenv("HF_HUB_DOWNLOAD_TIMEOUT", "1800")
     cmd = [
         sys.executable,
         "-m",
@@ -306,18 +451,31 @@ def _merge_adapter_with_base_model(
         "--cache-root",
         str(cache_root),
     ]
-    result = subprocess.run(
+    process = subprocess.Popen(
         cmd,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         env=env,
     )
-    if on_log:
-        for line in (result.stdout or "").splitlines():
-            if line.strip():
-                on_log(line.strip())
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "unknown error").strip()
+    stdout_lines: list[str] = []
+    last_logged_line = ""
+    assert process.stdout is not None
+    for raw_line in process.stdout:
+        line = _clean_console_line(raw_line)
+        if not line:
+            continue
+        if line == last_logged_line:
+            continue
+        last_logged_line = line
+        stdout_lines.append(line)
+        if on_log:
+            on_log(line)
+    result_code = process.wait()
+    if result_code != 0:
+        detail = "\n".join(stdout_lines).strip() or "unknown error"
         if "couldn't connect to 'https://huggingface.co'" in detail or "Failed to establish a new connection" in detail:
             detail = (
                 "Local adapter deployment merge failed because the base model could not be downloaded from "

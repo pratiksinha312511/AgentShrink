@@ -4,6 +4,9 @@ import pathlib
 import time
 import uuid
 
+from agentshrink.app_setup import load_product_config
+from agentshrink.provider_registry import get_provider_config
+
 
 CATALOG_FILENAME = "models_catalog.json"
 
@@ -18,11 +21,11 @@ def _env_float(name: str, default: float) -> float:
 def _default_model_entries() -> list[dict]:
     entries: list[dict] = []
 
-    target_provider = os.getenv("TARGET_AGENT_PROVIDER", "openai").strip().lower()
-    target_openai_model = os.getenv("TARGET_AGENT_OPENAI_MODEL", "gpt-4o-mini")
-    target_nvidia_model = os.getenv("TARGET_AGENT_NVIDIA_MODEL", "moonshotai/kimi-k2-instruct")
-    target_gemini_model = os.getenv("TARGET_AGENT_GEMINI_MODEL", "gemini-2.0-flash-lite")
-    target_ollama_model = os.getenv("TARGET_AGENT_OLLAMA_MODEL", "llama3.2:3b")
+    active_defaults = active_gateway_defaults()
+    target_provider = active_defaults["provider_id"]
+    target_model = active_defaults["gateway_model"]
+    target_ollama_model = active_defaults["local_model"]
+    target_provider_name = active_defaults["provider_name"]
 
     entries.append({
         "id": "local-default",
@@ -40,43 +43,22 @@ def _default_model_entries() -> list[dict]:
         "source": "default",
     })
 
+    default_in, default_out = default_costs_for_model(target_provider, target_model)
     default_remote = {
-        "openai": {
-            "model_name": target_openai_model,
-            "display_name": f"OpenAI ({target_openai_model})",
-            "quality_tier": 5,
-            "cost_in_per_1k": _env_float("AGENTSHRINK_PRICE_IN_PER_1K", 0.00015 if "mini" in target_openai_model else 0.0025),
-            "cost_out_per_1k": _env_float("AGENTSHRINK_PRICE_OUT_PER_1K", 0.0006 if "mini" in target_openai_model else 0.010),
-        },
-        "nvidia": {
-            "model_name": target_nvidia_model,
-            "display_name": f"NVIDIA ({target_nvidia_model})",
-            "quality_tier": 5,
-            "cost_in_per_1k": _env_float("AGENTSHRINK_PRICE_IN_PER_1K", 0.00014),
-            "cost_out_per_1k": _env_float("AGENTSHRINK_PRICE_OUT_PER_1K", 0.00056),
-        },
-        "gemini": {
-            "model_name": target_gemini_model,
-            "display_name": f"Gemini ({target_gemini_model})",
-            "quality_tier": 4,
-            "cost_in_per_1k": _env_float("AGENTSHRINK_PRICE_IN_PER_1K", 0.000075),
-            "cost_out_per_1k": _env_float("AGENTSHRINK_PRICE_OUT_PER_1K", 0.0003),
-        },
-    }.get(target_provider, {
-        "model_name": target_openai_model,
-        "display_name": f"OpenAI ({target_openai_model})",
-        "quality_tier": 5,
-        "cost_in_per_1k": 0.00015,
-        "cost_out_per_1k": 0.0006,
-    })
+        "model_name": target_model,
+        "display_name": f"{target_provider_name} ({target_model})",
+        "quality_tier": 5 if target_provider not in {"ollama", "mock"} else 2,
+        "cost_in_per_1k": _env_float("AGENTSHRINK_PRICE_IN_PER_1K", default_in),
+        "cost_out_per_1k": _env_float("AGENTSHRINK_PRICE_OUT_PER_1K", default_out),
+    }
 
     entries.append({
         "id": "primary-default",
-        "provider": target_provider if target_provider in {"openai", "nvidia", "gemini"} else "openai",
+        "provider": target_provider,
         "enabled": True,
         "candidate_enabled": True,
         "judge_eligible": True,
-        "local": False,
+        "local": target_provider == "ollama",
         "supports": ["simple", "reasoning", "writing", "general"],
         "source": "default",
         **default_remote,
@@ -108,7 +90,32 @@ def default_costs_for_model(provider: str, model_name: str) -> tuple[float, floa
             return 0.00015, 0.0006
         if "4o" in model_name:
             return 0.0025, 0.010
+    if provider in {"sarvam", "openai_compatible"} or "sarvam" in model_name:
+        return 0.0004, 0.0012
     return 0.001, 0.002
+
+
+def active_gateway_defaults() -> dict:
+    config = load_product_config()
+    gateway = config.get("gateway") or {}
+    defaults = config.get("defaults") or {}
+    provider_id = str(gateway.get("upstream_provider") or os.getenv("TARGET_AGENT_PROVIDER", "openai")).strip().lower() or "openai"
+    provider_config = get_provider_config(provider_id)
+    provider_name = str((provider_config or {}).get("name") or provider_id.replace("-", " ").title())
+    gateway_model = str(defaults.get("gateway_model") or "").strip()
+    if not gateway_model or (gateway_model == "mock-model" and provider_id != "mock"):
+        gateway_model = str((provider_config or {}).get("default_model") or "").strip()
+    if not gateway_model:
+        gateway_model = os.getenv("TARGET_AGENT_OPENAI_MODEL", "gpt-4o-mini")
+
+    ollama_provider = get_provider_config("ollama") or {}
+    local_model = str(ollama_provider.get("default_model") or os.getenv("TARGET_AGENT_OLLAMA_MODEL", "llama3.2:3b")).strip()
+    return {
+        "provider_id": provider_id,
+        "provider_name": provider_name,
+        "gateway_model": gateway_model,
+        "local_model": local_model,
+    }
 
 
 def normalize_model_entry(entry: dict) -> dict:
@@ -153,6 +160,46 @@ def default_catalog() -> dict:
     }
 
 
+def _merge_default_model(existing: dict, seeded: dict) -> dict:
+    merged = dict(seeded)
+    # Keep operator-tuned behavior while still refreshing the active provider/model identity.
+    for key in (
+        "enabled",
+        "candidate_enabled",
+        "judge_eligible",
+        "supports",
+        "quality_tier",
+        "cost_in_per_1k",
+        "cost_out_per_1k",
+    ):
+        if key in existing:
+            merged[key] = existing[key]
+    # Local/default entries should still retain the latest display/provider/model from the active config.
+    return normalize_model_entry(merged)
+
+
+def _reconcile_default_models(catalog: dict) -> dict:
+    default_entries = {entry["id"]: normalize_model_entry(entry) for entry in _default_model_entries()}
+    existing_by_id = {
+        model.get("id"): normalize_model_entry(model)
+        for model in catalog.get("models", [])
+        if model.get("id")
+    }
+    merged_defaults = []
+    for model_id, seeded in default_entries.items():
+        existing = existing_by_id.get(model_id)
+        if existing:
+            merged_defaults.append(_merge_default_model(existing, seeded))
+        else:
+            merged_defaults.append(seeded)
+    preserved_models = [
+        model for model in catalog.get("models", [])
+        if model.get("source") != "default" and model.get("id") not in default_entries
+    ]
+    catalog["models"] = merged_defaults + preserved_models
+    return catalog
+
+
 def load_model_catalog(output_dir: pathlib.Path) -> dict:
     path = catalog_path(output_dir)
     if not path.exists():
@@ -168,6 +215,7 @@ def load_model_catalog(output_dir: pathlib.Path) -> dict:
         "updated_at": saved.get("updated_at"),
         "models": [normalize_model_entry(entry) for entry in saved.get("models", [])],
     }
+    catalog = _reconcile_default_models(catalog)
     if not catalog["models"]:
         catalog = default_catalog()
         save_model_catalog(output_dir, catalog)
@@ -182,6 +230,7 @@ def save_model_catalog(output_dir: pathlib.Path, catalog: dict) -> dict:
         "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "models": [normalize_model_entry(entry) for entry in catalog.get("models", [])],
     }
+    normalized = _reconcile_default_models(normalized)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(normalized, f, indent=2)
     return normalized
@@ -271,3 +320,25 @@ def choose_best_model(cluster_meta: dict, catalog: dict) -> dict | None:
             model.get("display_name", model.get("model_name", "")),
         ),
     )
+
+
+def choose_fine_tune_base_model(cluster_meta: dict, catalog: dict) -> dict | None:
+    task_kind = cluster_task_kind(cluster_meta)
+    enabled = [model for model in catalog.get("models", []) if model.get("enabled") and model.get("candidate_enabled", True)]
+    local_candidates = [model for model in enabled if model.get("local")]
+    if not local_candidates:
+        return None
+
+    matching = [
+        model for model in local_candidates
+        if ("general" in model.get("supports", []) or task_kind in model.get("supports", []))
+    ]
+    candidates = matching or local_candidates
+    return sorted(
+        candidates,
+        key=lambda model: (
+            -int(model.get("quality_tier", 0)),
+            _blended_cost(model),
+            model.get("display_name", model.get("model_name", "")),
+        ),
+    )[0]

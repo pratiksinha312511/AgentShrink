@@ -387,29 +387,11 @@ class ProviderRunner:
 
         client = None
         try:
-            if candidate.provider == "openai":
-                from langchain_openai import ChatOpenAI
-                kwargs = {}
-                if os.getenv("OPENAI_BASE_URL"):
-                    kwargs["base_url"] = os.getenv("OPENAI_BASE_URL")
-                if os.getenv("OPENAI_API_KEY"):
-                    kwargs["api_key"] = os.getenv("OPENAI_API_KEY")
-                client = ChatOpenAI(model=candidate.model_name, temperature=0, **kwargs)
-            elif candidate.provider == "nvidia":
-                from langchain_openai import ChatOpenAI
-                client = ChatOpenAI(
-                    model=candidate.model_name,
-                    temperature=0,
-                    base_url=os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
-                    api_key=os.getenv("NVIDIA_API_KEY"),
-                )
-            elif candidate.provider == "gemini":
-                from langchain_google_genai import ChatGoogleGenerativeAI
-                client = ChatGoogleGenerativeAI(
-                    model=candidate.model_name,
-                    temperature=0,
-                    google_api_key=os.getenv("GOOGLE_API_KEY"),
-                )
+            client = get_chat_model(
+                provider=candidate.provider,
+                model=candidate.model_name,
+                temperature=0,
+            )
         except Exception as e:
             logger.warning(f"Failed to initialize {candidate.provider}:{candidate.model_name} for evaluation: {e}")
             client = None
@@ -462,9 +444,9 @@ class SLMEvaluator:
         """Get the configured judge LLM for analysis."""
         provider = analysis_provider()
         model = self.config.judge_model
+        catalog = load_model_catalog(pathlib.Path(os.getenv("AGENTSHRINK_OUTPUT_DIR", ".agentshrink_output")))
         judge_model_id = get_judge_model_id()
         if judge_model_id:
-            catalog = load_model_catalog(pathlib.Path(os.getenv("AGENTSHRINK_OUTPUT_DIR", ".agentshrink_output")))
             selected = next(
                 (entry for entry in catalog.get("models", []) if entry.get("id") == judge_model_id),
                 None,
@@ -472,7 +454,23 @@ class SLMEvaluator:
             if selected:
                 provider = selected.get("provider", provider)
                 model = selected.get("model_name", model)
-        elif provider != "openai" and model == self.config.judge_model:
+        else:
+            judge_candidates = [
+                entry for entry in catalog.get("models", [])
+                if entry.get("enabled") and entry.get("judge_eligible", True)
+            ]
+            selected = sorted(
+                judge_candidates,
+                key=lambda entry: (
+                    bool(entry.get("local")),
+                    -int(entry.get("quality_tier", 0) or 0),
+                    entry.get("display_name", ""),
+                ),
+            )[0] if judge_candidates else None
+            if selected:
+                provider = selected.get("provider", provider)
+                model = selected.get("model_name", model)
+        if model == self.config.judge_model:
             model = analysis_model(provider)
         logger.info(f"Using judge model {provider}:{model}")
         return get_chat_model(

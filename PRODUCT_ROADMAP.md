@@ -152,6 +152,47 @@ Goal: make AgentShrink usable by external teams with minimal setup and a hosted 
 This milestone should start only after local product hardening is strong enough.
 The hosted version will be much easier to build well once the local product flow is stable, explainable, and trusted.
 
+## v1.1 - Provider-Agnostic Gateway
+
+Goal: evolve AgentShrink from a few built-in upstreams into a provider-agnostic gateway with adapter registry + BYOK config.
+
+### Done
+- provider registry + BYOK settings UI exists
+- custom `openai_compatible` providers can be saved and used as gateway upstreams
+- judge/evaluation path now reuses registry-backed provider clients for OpenAI-compatible providers like Sarvam
+
+### In Progress
+- adapter surface is still small:
+  - `mock`
+  - `openai_compatible`
+  - `huggingface_chat`
+- gateway, doctor checks, and settings are not yet broad enough for major non-OpenAI-native providers
+
+### Next
+- add first-class native adapters:
+  - `gemini_native`
+  - `anthropic_native`
+  - `azure_openai`
+- add preset provider entries on top of adapters:
+  - Gemini
+  - OpenRouter
+  - Azure OpenAI
+- add provider connection testing in Settings
+- add model discovery for saved providers where the upstream supports it
+- add generic `custom_http` as the long-tail escape hatch for nonstandard APIs
+
+### Rollout Plan
+1. Land one native adapter end to end.
+   Start with Gemini because the repo already has Google SDK support.
+2. Make adapter support consistent across:
+   - gateway
+   - provider doctor checks
+   - judge/evaluator
+   - settings UI
+3. Add provider presets for common endpoints built on shared adapters.
+4. Add provider connection test + model discovery UX.
+5. Add `custom_http` for long-tail vendor coverage.
+
 ## Summary
 
 ### Done
@@ -173,3 +214,7 @@ The hosted version will be much easier to build well once the local product flow
   - hosted deployment shape
   - account/project separation
   - hosted gateway option
+- continue v1.1 with:
+  - native provider adapters
+  - provider presets
+  - connection testing and model discovery

@@ -1,8 +1,9 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import ProjectScopeBar from '@/components/ProjectScopeBar'
 import { ScatterChart, Scatter, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
-import { fetchClusters, fetchReport, triggerAnalyse } from '@/lib/api'
+import { fetchClusters, fetchPublicProjectClusters, fetchPublicProjects, fetchReport, triggerAnalyse } from '@/lib/api'
 
 const ANALYSIS_STORAGE_KEY = 'agentshrink.analysis.running'
 const TARGET_CLUSTER_STORAGE_KEY = 'agentshrink.target_cluster_eval'
@@ -73,6 +74,8 @@ export default function ClustersPage() {
   const [reportClusterId, setReportClusterId] = useState<string | null>(null)
   const [targetedRunReady, setTargetedRunReady] = useState(false)
   const [fullReportBaseline, setFullReportBaseline] = useState<string | null>(null)
+  const [activeProjectId, setActiveProjectId] = useState('')
+  const [selectedProjectId, setSelectedProjectId] = useState('')
 
   useEffect(() => {
     const persistedTargetCluster = window.localStorage.getItem(TARGET_CLUSTER_STORAGE_KEY)
@@ -83,11 +86,18 @@ export default function ClustersPage() {
 
     const loadClusters = async () => {
       try {
-        const nextData = await fetchClusters()
+        const projects = await fetchPublicProjects()
+        const nextActiveProjectId = projects?.active_project_id || ''
+        const nextSelectedProjectId = selectedProjectId || nextActiveProjectId
+        const nextData = nextSelectedProjectId && nextSelectedProjectId !== nextActiveProjectId
+          ? await fetchPublicProjectClusters(nextSelectedProjectId)
+          : await fetchClusters()
+        setActiveProjectId(nextActiveProjectId)
+        setSelectedProjectId(nextSelectedProjectId)
         setData(nextData)
         setError('')
         setWaitingForAnalysis(false)
-        if (nextData.n_clusters > 0) {
+        if (nextData.n_clusters > 0 && nextSelectedProjectId === nextActiveProjectId) {
           window.localStorage.removeItem(ANALYSIS_STORAGE_KEY)
         }
       } catch (e: any) {
@@ -101,7 +111,7 @@ export default function ClustersPage() {
     loadClusters()
     const interval = setInterval(loadClusters, 5000)
     return () => clearInterval(interval)
-  }, [])
+  }, [selectedProjectId])
 
   useEffect(() => {
     if (!reportClusterId || targetedRunReady) return
@@ -257,6 +267,7 @@ export default function ClustersPage() {
 
   return (
     <div style={{ maxWidth: 900 }}>
+      <ProjectScopeBar selectedProjectId={selectedProjectId} onChange={setSelectedProjectId} />
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
           <div>
@@ -268,7 +279,7 @@ export default function ClustersPage() {
           </div>
           <button
             onClick={handleEvaluateAll}
-            disabled={evaluatingAll}
+            disabled={evaluatingAll || (!!selectedProjectId && selectedProjectId !== activeProjectId)}
             style={{
               background: '#1D9E75',
               color: 'white',
@@ -282,11 +293,13 @@ export default function ClustersPage() {
               flexShrink: 0,
             }}
           >
-            {evaluatingAll ? 'Evaluating all...' : 'Evaluate All'}
+            {selectedProjectId && selectedProjectId !== activeProjectId ? 'Read-only scope' : (evaluatingAll ? 'Evaluating all...' : 'Evaluate All')}
           </button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 8 }}>
-          Use individual `Evaluate` buttons for targeted reports, or `Evaluate All` to refresh the main replaceability report for every current cluster.
+          {selectedProjectId && selectedProjectId !== activeProjectId
+            ? 'This is a saved project-scoped cluster view. Switch back to the active project to run fresh evaluation.'
+            : 'Use individual `Evaluate` buttons for targeted reports, or `Evaluate All` to refresh the main replaceability report for every current cluster.'}
         </div>
       </div>
 
@@ -309,7 +322,7 @@ export default function ClustersPage() {
               </div>
               <button
                 onClick={() => handleEvaluateCluster(selected)}
-                disabled={evaluatingClusterId === selected || (reportClusterId === selected && !targetedRunReady)}
+                disabled={!!selectedProjectId && selectedProjectId !== activeProjectId || evaluatingClusterId === selected || (reportClusterId === selected && !targetedRunReady)}
                 style={{
                   background: '#1D9E75',
                   color: 'white',
@@ -318,12 +331,12 @@ export default function ClustersPage() {
                   padding: '8px 14px',
                   fontSize: 12,
                   fontWeight: 500,
-                  cursor: (evaluatingClusterId === selected || (reportClusterId === selected && !targetedRunReady)) ? 'default' : 'pointer',
-                  opacity: (evaluatingClusterId === selected || (reportClusterId === selected && !targetedRunReady)) ? 0.7 : 1,
+                  cursor: (!!selectedProjectId && selectedProjectId !== activeProjectId) || (evaluatingClusterId === selected || (reportClusterId === selected && !targetedRunReady)) ? 'default' : 'pointer',
+                  opacity: (!!selectedProjectId && selectedProjectId !== activeProjectId) || (evaluatingClusterId === selected || (reportClusterId === selected && !targetedRunReady)) ? 0.7 : 1,
                   flexShrink: 0,
                 }}
               >
-                {evaluatingClusterId === selected ? 'Starting...' : (reportClusterId === selected && !targetedRunReady) ? 'Running...' : 'Evaluate Cluster'}
+                {selectedProjectId && selectedProjectId !== activeProjectId ? 'Read-only' : (evaluatingClusterId === selected ? 'Starting...' : (reportClusterId === selected && !targetedRunReady) ? 'Running...' : 'Evaluate Cluster')}
               </button>
             </div>
           )}
@@ -421,7 +434,7 @@ export default function ClustersPage() {
                     e.stopPropagation()
                     handleEvaluateCluster(cid)
                   }}
-                  disabled={evaluatingClusterId === cid || (reportClusterId === cid && !targetedRunReady)}
+                  disabled={!!selectedProjectId && selectedProjectId !== activeProjectId || evaluatingClusterId === cid || (reportClusterId === cid && !targetedRunReady)}
                   style={{
                     background: 'transparent',
                     color: '#1D9E75',
@@ -430,12 +443,12 @@ export default function ClustersPage() {
                     padding: '3px 8px',
                     fontSize: 10,
                     fontWeight: 500,
-                    cursor: (evaluatingClusterId === cid || (reportClusterId === cid && !targetedRunReady)) ? 'default' : 'pointer',
-                    opacity: (evaluatingClusterId === cid || (reportClusterId === cid && !targetedRunReady)) ? 0.6 : 1,
+                    cursor: (!!selectedProjectId && selectedProjectId !== activeProjectId) || (evaluatingClusterId === cid || (reportClusterId === cid && !targetedRunReady)) ? 'default' : 'pointer',
+                    opacity: (!!selectedProjectId && selectedProjectId !== activeProjectId) || (evaluatingClusterId === cid || (reportClusterId === cid && !targetedRunReady)) ? 0.6 : 1,
                     flexShrink: 0,
                   }}
                 >
-                  {evaluatingClusterId === cid ? 'Starting...' : (reportClusterId === cid && !targetedRunReady) ? 'Running...' : 'Evaluate'}
+                  {selectedProjectId && selectedProjectId !== activeProjectId ? 'Read-only' : (evaluatingClusterId === cid ? 'Starting...' : (reportClusterId === cid && !targetedRunReady) ? 'Running...' : 'Evaluate')}
                 </button>
               </div>
               <div style={{ fontSize: 11, color: 'var(--text-tertiary)', lineHeight: 1.6 }}>

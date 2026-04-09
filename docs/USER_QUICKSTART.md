@@ -7,20 +7,21 @@ agentshrink init --project-name "My AgentShrink Project"
 agentshrink doctor
 ```
 
-## 2. Start the local services
+## 2. Start the local stack
 
-Open three terminals:
+Use the one-command foreground supervisor:
 
 ```powershell
-agentshrink start gateway
+agentshrink stack up
 ```
 
-```powershell
-agentshrink start backend
-```
+Keep that terminal open while you use the product.
+
+If you need to inspect or stop it later:
 
 ```powershell
-agentshrink start frontend
+agentshrink stack status
+agentshrink stack down
 ```
 
 ## 3. Point your app at the gateway
@@ -53,6 +54,7 @@ response = requests.post(
 
 ## 4. Open the dashboard
 
+- `http://localhost:3000/welcome`
 - `http://localhost:3000/routing`
 - `http://localhost:3000/clusters`
 - `http://localhost:3000/report`
@@ -69,3 +71,13 @@ That means you can:
 
 without spending money on real providers.
 
+## 6. Canonical first-run path
+
+If you are not sure what to do first, always use this order:
+
+1. `agentshrink init`
+2. `agentshrink doctor`
+3. `agentshrink stack up`
+4. open `/welcome`
+5. copy the integration snippet for your app
+6. send traffic through the gateway
