@@ -1,0 +1,106 @@
+# Agno HackerNews Analysis Agent — Prompts (30-30-30)
+# Upstream: Sarvam AI (sarvam-m) via AgentShrink Gateway
+# Framework: Agno | Adapter: agno_adapter.py
+# Original: awesome-ai-apps/starter_ai_agents/agno_starter
+
+## ── KEEP ON LLM (30) ──────────────────────────────────────────────
+## Complex reasoning, nuance, multi-step analysis — needs full LLM power
+
+1. Analyze the top 10 HackerNews stories from today and identify three emerging technology themes connecting them. Explain the investment implications.
+2. Compare sentiment patterns across comments on AI-related vs blockchain-related stories from the past week. Which community is more polarized?
+3. Write a 500-word trend report on how HackerNews discussions about open source have evolved over the past 6 months, citing specific stories.
+4. Identify the most controversial story on HackerNews today and analyze both sides of the debate, including comment quality and engagement depth.
+5. Cross-reference today's top stories with Y Combinator's latest batch companies. Are there common themes?
+6. Analyze how the HackerNews community's sentiment toward LLMs has shifted since GPT-4's launch. Provide a timeline of key inflection points.
+7. Create a competitive landscape map of the startups mentioned in this week's top 50 stories. Group them by sector and stage.
+8. Evaluate the technical depth of comments on the highest-scored programming story today. What expertise level does the community demonstrate?
+9. Identify potential acquisition targets from startups mentioned in HackerNews front page stories this month, with reasoning.
+10. Write a critical analysis of the Show HN posts from this week — which ones demonstrate genuine product-market fit signals?
+11. Analyze the geographic distribution of tech trends discussed on HackerNews. Is there a US-centric bias?
+12. Compare the technical sophistication of Rust vs Go discussions on HackerNews. Which community produces more actionable insights?
+13. Identify stories where the top comment fundamentally contradicts the article. What does this pattern reveal about HN culture?
+14. Create a "risk radar" for VCs based on negative sentiment patterns in HackerNews discussions about specific technology sectors.
+15. Analyze how hiring-related stories on HackerNews correlate with broader tech layoff trends. Present with data points.
+16. Write a deep-dive analysis on why certain Show HN posts get massive engagement while similar ones get ignored.
+17. Identify the top 5 technical debates on HackerNews this month and explain the underlying architectural trade-offs.
+18. Analyze the relationship between HackerNews karma scores and comment quality for posts about AI safety.
+19. Create an "innovation index" based on HackerNews discussions — which technical domains are seeing the most novel ideas?
+20. Compare the tone and depth of HackerNews vs Reddit r/programming for the same news stories this week.
+21. Analyze which programming languages are gaining/losing mindshare on HackerNews based on submission frequency and engagement.
+22. Write a strategic memo for a startup founder based on the market signals embedded in this week's HackerNews front page.
+23. Identify patterns in how HackerNews moderates controversial content. Compare with visible community self-regulation.
+24. Analyze the "Ask HN" posts about career advice this month. What recurring themes and blind spots exist?
+25. Create a technology adoption curve based on how HackerNews discusses emerging tools from first mention to mainstream.
+26. Evaluate the quality of technical writing in the top 10 blog posts on HackerNews today. What makes great technical content?
+27. Analyze the impact of HackerNews traffic on startup launches — which Show HN posts led to measurable traction?
+28. Write a comparative analysis of developer tool discussions on HN: hosted vs self-hosted solutions preference trends.
+29. Identify the most underrated stories on HN this week (low score but high-quality content) and explain why they deserved more attention.
+30. Create a "future of work" analysis based on HackerNews discussions about remote work, AI tools, and developer productivity.
+
+## ── NEED FINE-TUNE (30) ────────────────────────────────────────────
+## Moderate complexity — SLM could handle with domain-specific fine-tuning
+
+1. Summarize the top 5 HackerNews stories from today in 2-3 sentences each.
+2. List the most discussed programming languages on HackerNews this week with story counts.
+3. Categorize today's front page stories into sectors: AI, Web, Security, DevOps, Business, Other.
+4. Extract the key claims from the top story on HackerNews and list them as bullet points.
+5. Identify which stories on the front page are from YC-backed startups vs independent projects.
+6. Summarize the top 3 comments on the highest-engagement story into a brief overview.
+7. List all Show HN posts from today with their scores and brief descriptions.
+8. Compare the engagement (comments + score) of today's top AI story vs top security story.
+9. Extract technical specifications mentioned in the top 3 programming-related stories.
+10. Identify the main criticism raised in comments for each of the top 5 stories.
+11. List trending topics on HackerNews today and rank them by comment volume.
+12. Summarize the "Ask HN" posts from today — what are people seeking help with?
+13. Extract all company names mentioned in today's top 20 stories.
+14. Identify the author/submitter of the top 5 stories and their karma levels.
+15. Create a brief timeline of events mentioned in the top news stories today.
+16. List the external links (blog posts, articles) shared in the top 10 stories.
+17. Identify whether today's top story is positive, negative, or neutral in tone.
+18. Summarize the hiring-related stories or comments visible on HN today.
+19. Extract the technologies mentioned in the top 5 "Show HN" posts.
+20. List the main counterarguments in comments for the most debated story today.
+21. Identify which stories link to academic papers vs blog posts vs news articles.
+22. Summarize the key takeaway from each of the top 3 "Who is Hiring?" thread responses.
+23. Compare the posting times of the top 10 stories — when do popular stories get submitted?
+24. List all open-source tools mentioned in today's front page stories.
+25. Extract pricing information from any SaaS/product stories on the front page.
+26. Identify stories discussing regulatory or legal topics in tech.
+27. Summarize the feedback on the most recently launched Show HN project.
+28. List the universities or research institutions mentioned in today's stories.
+29. Identify stories that reference or build upon previous HN discussions.
+30. Create a quick digest of today's HN front page suitable for a morning email newsletter.
+
+## ── KEEP ON SLM (30) ──────────────────────────────────────────────
+## Simple tasks — small local model handles these fine
+
+1. What is HackerNews?
+2. How does the HackerNews scoring system work?
+3. Show me the current top story on HackerNews.
+4. What is the URL for HackerNews?
+5. How many comments does the top story have?
+6. What is the score of the number one story?
+7. Who submitted the top story?
+8. What time was the top story posted?
+9. Is HackerNews owned by Y Combinator?
+10. What does "Show HN" mean?
+11. What does "Ask HN" mean?
+12. How do you upvote on HackerNews?
+13. What is karma on HackerNews?
+14. Show me the newest stories.
+15. What is the top story's title?
+16. How old is HackerNews?
+17. What topics are allowed on HackerNews?
+18. What is the "dead" status on HN comments?
+19. Can you downvote on HackerNews?
+20. What are HackerNews guidelines?
+21. What is the front page of HackerNews?
+22. How many stories are on the front page?
+23. What programming language is HackerNews built with?
+24. Who created HackerNews?
+25. What does "flagged" mean on HN?
+26. Show me the second top story.
+27. What is HackerNews' daily traffic?
+28. What is the "best" page on HackerNews?
+29. Can you post job listings on HN?
+30. What is the maximum title length on HN?

@@ -1,0 +1,99 @@
+# Finance Agent — Prompts (30-30-30)
+# Upstream: Sarvam AI (sarvam-m) via AgentShrink Gateway
+# Framework: Agno + YFinance | Adapter: agno_adapter.py
+
+## ── KEEP ON LLM (30) ──────────────────────────────────────────────
+1. Perform a comprehensive DCF valuation of Apple (AAPL) using current financials, projected growth rates, and WACC. Present with sensitivity analysis.
+2. Compare the risk-adjusted returns of NVIDIA, AMD, and Intel over the past 3 years. Calculate Sharpe ratios and maximum drawdowns.
+3. Analyze the correlation between crude oil prices and airline stocks (DAL, UAL, AAL) over the past year. What trading strategy emerges?
+4. Build a diversified portfolio of 10 stocks across sectors for a $100K investment. Justify each pick with fundamental analysis.
+5. Evaluate the impact of rising interest rates on REIT performance. Compare 5 major REITs with their earnings sensitivity.
+6. Analyze Tesla's financial health using 15+ financial ratios and compare against traditional automakers.
+7. Create a sector rotation strategy based on current economic indicators. Which sectors should be overweight/underweight?
+8. Perform a technical analysis of the S&P 500 using moving averages, RSI, MACD, and Bollinger Bands. Predict next month's range.
+9. Analyze the financial viability of emerging AI companies: compare revenue growth, burn rate, and path to profitability.
+10. Create a comprehensive risk assessment for a portfolio heavily weighted in tech stocks during a potential recession.
+11. Evaluate Warren Buffett's latest quarterly 13F filing. What does his portfolio reveal about his market outlook?
+12. Analyze the impact of upcoming Federal Reserve decisions on bond yields, equity markets, and currency pairs.
+13. Compare passive index investing vs active management using 10-year performance data across market conditions.
+14. Build a pairs trading strategy for correlated stocks in the semiconductor sector with backtesting results.
+15. Analyze the financial statements of 3 major Indian companies (Reliance, TCS, HDFC) and rate their investment potential.
+16. Create an options strategy for generating income on a $500K stock portfolio during high volatility.
+17. Evaluate the cryptocurrency market's correlation with traditional equity markets in 2024-2026.
+18. Analyze the M&A landscape in AI: which companies are likely acquisition targets based on financials and technology?
+19. Perform a Monte Carlo simulation for a 60/40 portfolio's expected returns over the next 10 years.
+20. Compare the financial performance of cloud providers (AWS, Azure, GCP) through their parent companies' earnings.
+21. Analyze the impact of ESG investing on portfolio returns compared to traditional investing.
+22. Create a quantitative screening model to identify undervalued stocks using multiple factors.
+23. Evaluate the financial sustainability of dividend aristocrats in a rising rate environment.
+24. Analyze Japan's stock market revival: what's driving the Nikkei and which sectors offer opportunity?
+25. Build a tail-risk hedging strategy using VIX options for a long equity portfolio.
+26. Compare emerging market ETFs (EEM, VWO, IEMG) on returns, expenses, and country exposure.
+27. Analyze the financial impact of AI adoption on the top 5 consulting firms' revenue growth.
+28. Create a factor-based investing model using value, momentum, quality, and low volatility factors.
+29. Evaluate India's stock market (NIFTY 50) valuation relative to historical averages and global peers.
+30. Analyze the credit default swap spreads for major banks and what they signal about financial system health.
+
+## ── NEED FINE-TUNE (30) ────────────────────────────────────────────
+1. What is the current stock price of NVDA?
+2. Show me the analyst recommendations for Apple (AAPL).
+3. What is the P/E ratio of Microsoft (MSFT)?
+4. Compare the market caps of Google, Amazon, and Meta.
+5. What is the dividend yield of Coca-Cola (KO)?
+6. Show me the 52-week high and low for Tesla (TSLA).
+7. What is the trading volume for AMZN today?
+8. List the top 5 holdings of the S&P 500 ETF (SPY).
+9. What is the current price of gold?
+10. Show me the earnings per share for JPMorgan (JPM).
+11. What is Amazon's revenue for the last quarter?
+12. Compare the stock prices of Visa and Mastercard.
+13. What is the market cap of Reliance Industries?
+14. Show the daily price change for the NASDAQ index.
+15. What is Intel's debt-to-equity ratio?
+16. List the top 5 gainers on the NYSE today.
+17. What is Bitcoin's current price?
+18. Show me Apple's profit margin.
+19. What is the current yield on the 10-year Treasury?
+20. Compare the performance of QQQ vs SPY this year.
+21. What is Netflix's subscriber count from their latest earnings?
+22. Show me the sector breakdown of the Dow Jones.
+23. What is the current oil price (WTI)?
+24. List the top ETFs by assets under management.
+25. What is TCS's revenue in Indian rupees?
+26. Show the price history of MSFT for the past month.
+27. What is the current exchange rate of USD to INR?
+28. List the FAANG stock prices.
+29. What is Berkshire Hathaway's stock price?
+30. Show the performance of the Indian NIFTY 50 index today.
+
+## ── KEEP ON SLM (30) ──────────────────────────────────────────────
+1. What is a stock?
+2. What does IPO stand for?
+3. What is a dividend?
+4. What is the S&P 500?
+5. What is a bond?
+6. What does P/E ratio mean?
+7. What is market capitalization?
+8. What is a bull market?
+9. What is a bear market?
+10. What is an ETF?
+11. What does NASDAQ stand for?
+12. What is a mutual fund?
+13. What is inflation?
+14. What is a stock exchange?
+15. What is a portfolio?
+16. What is a recession?
+17. What does ROI mean?
+18. What is a hedge fund?
+19. What is compound interest?
+20. What is the Dow Jones?
+21. What is a stock split?
+22. What is trading volume?
+23. What is an index fund?
+24. What is forex?
+25. What is a blue chip stock?
+26. What does NYSE stand for?
+27. What is a 401k?
+28. What is diversification?
+29. What is a stock ticker?
+30. What is the SEC?

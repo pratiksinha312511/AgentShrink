@@ -1,0 +1,99 @@
+# LlamaIndex Task Manager — Prompts (30-30-30)
+# Upstream: Sarvam AI (sarvam-m) via AgentShrink Gateway
+# Framework: LlamaIndex ReAct | Adapter: llamaindex_adapter.py
+
+## ── KEEP ON LLM (30) ──────────────────────────────────────────────
+1. I worked from 09:00 to 17:00, took a 45-min lunch break, completed 12 tasks, but 3 were revisions. Calculate my net productivity excluding revisions and suggest how to reduce revision rate.
+2. Plan a 2-week sprint with 15 stories, 3 developers averaging 4 tasks/day each. Create a day-by-day schedule with buffer time for code reviews.
+3. I have 5 team members with different velocities (2, 3, 4, 5, 6 tasks/day). Assign 50 tasks optimally and show the load-balanced schedule.
+4. Analyze my work patterns: Mon 6 tasks in 8h, Tue 4 in 7h, Wed 8 in 9h, Thu 3 in 6h, Fri 5 in 7h. Which day am I most productive and why might that be?
+5. Calculate the critical path for this project: Task A (3 days, no dependencies), B (2 days, depends on A), C (4 days, no deps), D (1 day, depends on B and C).
+6. I have 20 meetings this week averaging 45 minutes each. Calculate what percentage of my 40-hour week is spent in meetings and suggest an optimization strategy.
+7. Compare two work strategies: (A) 8 hours straight with declining productivity vs (B) 6 hours in 90-min Pomodoros with breaks. Model productivity curves.
+8. Track my productivity over a month with weekly rates: W1: 30 tasks/40h, W2: 35/42h, W3: 25/38h, W4: 40/45h. Identify the trend and predict week 5.
+9. I need to complete a 200-hour project. My current velocity is 5.5 hours of focused work per 8-hour day. Calculate realistic finish date accounting for weekends and holidays.
+10. Analyze sprint burndown: Day 1: 50 points remaining, Day 2: 47, Day 3: 42, Day 4: 45 (added scope), Day 5: 38. Predict sprint completion probability.
+11. Plan resource allocation for 3 concurrent projects with overlapping deadlines and shared team members. Handle conflicts.
+12. Calculate the ROI of investing 2 hours per day in automation that saves 15 minutes per task across 100 daily tasks.
+13. I tracked my deep work sessions: 2h, 1.5h, 3h, 0.5h, 2.5h across 5 days. Calculate optimal session length for peak productivity.
+14. Design a priority matrix for 25 tasks with varying urgency (1-5) and importance (1-5). Use Eisenhower matrix logic to categorize and sequence them.
+15. Calculate the cost of context switching: if each switch costs 23 minutes, and I switch 15 times per day, how many productive hours am I losing weekly?
+16. Estimate the team's delivery capacity for next quarter: 5 devs, 65 working days, estimated velocity 4 tasks/dev/day, 20% overhead for planning/reviews.
+17. Analyze meeting efficiency: 10 meetings this week, 6 had decisions recorded, 4 could have been emails. Calculate the time waste.
+18. Plan task batching: 30 tasks across 5 categories. Group them to minimize context switches while meeting deadlines.
+19. I need to reduce my 50-hour workweek to 40. Analyze my time breakdown and suggest what to delegate, automate, or eliminate.
+20. Calculate the impact of technical debt: we spend 30% of each sprint on maintenance. If we invest 2 sprints in cleanup, maintenance drops to 10%. When does it pay off?
+21. Track project health: original estimate 800 hours, 500 hours spent, 60% complete. Predict overshoot and recommend corrective actions.
+22. Design a work-from-home productivity framework with hourly goals, break schedules, and accountability checkpoints.
+23. Calculate parallel vs sequential task execution: 10 independent tasks at 2h each. How many hours saved with 3 parallel workers vs 1?
+24. Analyze sprint velocity trends over 6 sprints: 42, 38, 45, 40, 48, 44 points. Calculate moving average and predict next sprint.
+25. Plan a delegation framework: 40 tasks, 4 skill levels required, 5 team members with different skills. Assign optimally.
+26. Calculate the true cost of a meeting: 8 attendees × average salary ÷ hourly rate × 1.5 hours + 15 min prep each. Compare with async alternatives.
+27. I need to estimate task completion probabilities. Given historical data showing 80% are done on time, what's the probability all 5 tasks in a batch are on time?
+28. Design a time-tracking system that captures productive hours, meetings, breaks, and learning time. Calculate weekly efficiency ratios.
+29. Analyze the impact of remote work on my team's velocity: office sprint avg 42 points, remote avg 38, hybrid avg 44. What's the optimal arrangement?
+30. Create a quarterly capacity plan factoring in holidays, PTO requests, training days, and a 15% buffer for unplanned work.
+
+## ── NEED FINE-TUNE (30) ────────────────────────────────────────────
+1. If I worked from 09:00 to 17:00 and completed 8 tasks, what is my productivity rate?
+2. Estimate how long it will take to complete 15 tasks if each takes 30 minutes.
+3. Calculate the duration between 10:30 and 15:45.
+4. If 3 tasks take 45 minutes each, how long is the total?
+5. What is my productivity if I completed 10 tasks in 6 hours?
+6. Calculate the time from 08:00 to 12:30.
+7. Estimate completion time for 20 tasks at 25 minutes each.
+8. If I start at 09:00 and have 6 hours of tasks, when do I finish?
+9. What is the duration between 14:00 and 18:30?
+10. Calculate my daily output if I work 7 hours and complete 14 tasks.
+11. How many tasks can I complete in 4 hours at 20 minutes per task?
+12. What time will I finish if I start at 10:00 with 5 tasks of 40 minutes each?
+13. Calculate the average task time if 12 tasks took 6 hours.
+14. If I work 9:00 to 17:00 with a 1-hour lunch, how many work hours is that?
+15. Estimate how many 30-minute tasks I can fit between 13:00 and 17:00.
+16. Calculate the duration between 07:30 and 16:45.
+17. If my team of 3 each does 5 tasks per day, how many tasks in a week?
+18. What is the productivity rate for 20 tasks in 8 hours?
+19. Estimate total time for 8 tasks averaging 40 minutes each.
+20. If I have 3 hours left and 6 tasks, how much time per task?
+21. Calculate working hours between 08:30 and 17:00.
+22. How productive am I if I do 7 tasks between 10:00 and 14:00?
+23. Estimate completion: 25 tasks, 3 team members, 8 tasks per person per day.
+24. What is the duration from 11:15 to 16:45?
+25. If meetings take 2 hours of my 8-hour day, how many hours for tasks?
+26. Calculate tasks per hour for 15 tasks in 5 hours.
+27. How long will 4 tasks take at 1.5 hours each?
+28. What is my utilization rate if I work 6.5 hours out of an 8 hour day?
+29. Estimate daily task count for a team of 4 averaging 6 tasks each.
+30. Calculate the time between 09:15 and 13:45.
+
+## ── KEEP ON SLM (30) ──────────────────────────────────────────────
+1. What is a task?
+2. What is productivity?
+3. What is a deadline?
+4. What is a schedule?
+5. What is time management?
+6. What is a meeting?
+7. What is a project?
+8. What does "ETA" mean?
+9. What is a sprint?
+10. What is a milestone?
+11. What is a calendar?
+12. What does "ASAP" mean?
+13. What is overtime?
+14. What is workload?
+15. What is a to-do list?
+16. What is prioritization?
+17. What is delegation?
+18. What is a workflow?
+19. What is efficiency?
+20. What is a standup meeting?
+21. What is a Gantt chart?
+22. What is Kanban?
+23. What is Scrum?
+24. What is an agenda?
+25. What is a review?
+26. What is a blocker?
+27. What is capacity?
+28. What is velocity?
+29. What is a retrospective?
+30. What is burnout?

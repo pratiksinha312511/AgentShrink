@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Node
+dashboard/frontend/node_modules/
+dashboard/frontend/.next/
+
+# Data / secrets
+.env
+*.db
+.agentshrink/
+.agentshrink_output/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore

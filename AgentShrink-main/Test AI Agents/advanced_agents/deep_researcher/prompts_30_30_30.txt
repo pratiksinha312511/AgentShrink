@@ -1,0 +1,99 @@
+# Deep Researcher Agent — Prompts (30-30-30)
+# Upstream: Sarvam AI (sarvam-m) via AgentShrink Gateway
+# Framework: Agno + ScrapeGraph | Adapter: agno_adapter.py
+
+## ── KEEP ON LLM (30) ──────────────────────────────────────────────
+1. Research the current state of AI regulation globally. Compare approaches in the US, EU, China, India, and UK. Create a policy comparison matrix with enforcement mechanisms.
+2. Investigate the top 10 AI startups by funding in 2026. For each, analyze their technology, market position, competitive moat, and likelihood of success.
+3. Research the environmental impact of training large language models. Calculate carbon footprints for GPT-4, Llama, and Gemini and propose sustainability solutions.
+4. Conduct a deep investigation into the economic impact of AI on employment across 5 major industries with quantitative projections for the next 5 years.
+5. Research the current state of quantum computing and its potential to break modern encryption. Create a timeline of expected milestones and threat levels.
+6. Investigate the use of AI in drug discovery. Compare traditional vs AI-accelerated timelines and success rates with specific case studies.
+7. Research the emerging field of neuromorphic computing. Compare architectures from Intel (Loihi), IBM (TrueNorth), and academic projects.
+8. Conduct a comprehensive analysis of the AI chip market. Compare NVIDIA H100, AMD MI300, Intel Gaudi, and custom chips from Google and Amazon.
+9. Research breakthroughs in nuclear fusion energy from 2024-2026. Evaluate commercial viability timelines and key technical challenges.
+10. Investigate the state of AI-generated content detection. Compare detection methods, their accuracy rates, and the ongoing arms race.
+11. Research the financial technology landscape in India. Analyze UPI's impact, regulatory changes, and emerging opportunities.
+12. Conduct a deep-dive into autonomous vehicle testing data. Compare safety metrics across Waymo, Tesla FSD, Cruise, and Chinese competitors.
+13. Research the current state of CRISPR gene editing therapies in clinical trials. Evaluate safety data and commercialization timelines.
+14. Investigate how AI is transforming satellite imagery analysis for agriculture, defense, and climate monitoring.
+15. Research the state of open-source AI models vs proprietary. Compare capabilities, safety measures, and community governance models.
+16. Conduct an analysis of AI-powered cybersecurity tools. Compare approaches and effectiveness against modern threat vectors.
+17. Research the impact of deepfakes on elections and democracy. Survey detection tools and policy responses globally.
+18. Investigate the current state of brain-computer interfaces. Compare Neuralink, Synchron, and academic research on timelines and safety.
+19. Research how AI is being used in space exploration. Analyze missions, autonomous systems, and future plans by NASA, ESA, and private companies.
+20. Conduct a comprehensive study of AI in education: adaptive learning platforms, their effectiveness data, and equity implications.
+21. Research the emerging AI agent ecosystem. Map the major frameworks, platforms, and their architectural approaches.
+22. Investigate the economics of AI inference: compare cloud costs, on-device inference, and edge computing approaches.
+23. Research the state of natural language to code generation. Compare Copilot, Cursor, Amazon Q, and emerging tools.
+24. Conduct an analysis of AI governance frameworks: ISO 42001, NIST AI RMF, and EU AI Act compliance requirements.
+25. Research the potential of AI in climate change mitigation. Map specific technologies to IPCC-defined climate goals.
+26. Investigate the state of robotics and AI in manufacturing. Analyze ROI data from Industry 4.0 implementations.
+27. Research the convergence of AI and synthetic biology. Identify transformative applications and biosecurity risks.
+28. Conduct a deep analysis of AI in the legal sector: contract analysis, case prediction, and regulatory technology.
+29. Research the state of AI for Indian languages. Compare Sarvam AI, AI4Bharat, and Google's approaches to Indic NLP.
+30. Investigate how AI is reshaping the venture capital industry: deal sourcing, due diligence, and portfolio management.
+
+## ── NEED FINE-TUNE (30) ────────────────────────────────────────────
+1. Research the latest news about OpenAI and summarize key developments.
+2. Find the top 5 trending AI papers on arxiv this week.
+3. Research what Sarvam AI does and list their products.
+4. Find the current market share of major cloud providers.
+5. Research the latest developments in electric vehicles.
+6. Find the funding history of Anthropic.
+7. Research the current state of 5G deployment globally.
+8. Find the top 10 most valuable AI companies by market cap.
+9. Research recent advances in protein structure prediction.
+10. Find the latest benchmarks comparing LLM models.
+11. Research the current state of renewable energy adoption.
+12. Find recent acquisitions in the AI industry.
+13. Research what companies are building AI agents.
+14. Find the latest developer survey results about AI tools.
+15. Research the current state of AI hardware startups.
+16. Find recent policy changes affecting the tech industry.
+17. Research the adoption rates of AI in healthcare.
+18. Find the latest statistics on AI job market trends.
+19. Research recent breakthroughs in battery technology.
+20. Find comparisons between major AI model providers.
+21. Research the state of AI in India's tech ecosystem.
+22. Find recent venture capital trends in AI startups.
+23. Research the latest cybersecurity threats and AI defenses.
+24. Find comparisons of AI coding assistants.
+25. Research the current state of AR/VR technology.
+26. Find the latest news about semiconductor manufacturing.
+27. Research trends in AI-generated content and media.
+28. Find recent developments in AI safety research.
+29. Research the state of satellite internet services.
+30. Find the latest updates on AI regulation in the EU.
+
+## ── KEEP ON SLM (30) ──────────────────────────────────────────────
+1. What is artificial intelligence?
+2. What is a research paper?
+3. What is a startup?
+4. What does AI stand for?
+5. What is machine learning?
+6. What is deep learning?
+7. Who is the CEO of OpenAI?
+8. What is a neural network?
+9. What is cloud computing?
+10. What is an API?
+11. What is open source?
+12. What is a programming language?
+13. What is Python?
+14. What is a database?
+15. What is the internet?
+16. What is a website?
+17. What is encryption?
+18. What is a server?
+19. What is bandwidth?
+20. What is a processor?
+21. What is RAM?
+22. What is a GPU?
+23. What is software?
+24. What is hardware?
+25. What is a browser?
+26. What is a search engine?
+27. What is Wi-Fi?
+28. What is Bluetooth?
+29. What is an algorithm?
+30. What is data?

@@ -1,0 +1,99 @@
+# DSPy Agent — Prompts (30-30-30)
+# Upstream: Sarvam AI (sarvam-m) via AgentShrink Gateway
+# Framework: DSPy | Adapter: dspy_adapter.py
+
+## ── KEEP ON LLM (30) ──────────────────────────────────────────────
+1. Calculate the compound annual growth rate (CAGR) of Apple stock from 2015 to 2025 and explain what factors drove unexpected years.
+2. Using chain-of-thought reasoning, solve: If a train leaves Mumbai at 60 km/h and another leaves Delhi at 80 km/h, when and where do they meet if the distance is 1400 km?
+3. Research who won the most Nobel Prizes in Physics from European countries, then calculate the probability a random Physics Nobel laureate is from Germany.
+4. Perform multi-step reasoning: What was the GDP per capita of India in 2020, how does it compare to China's, and what would India's GDP need to grow by annually to match China's by 2035?
+5. Solve this optimization problem: A farmer has 100m of fencing. What dimensions of rectangular field maximize area? Then extend to a field against a river wall.
+6. Using Wikipedia, find the populations of the 5 most populated countries in Asia, then calculate what percentage of Earth's population they represent.
+7. Reason through: If Elon Musk's net worth is $X, and he spends $44B on Twitter, what percentage did that represent? Research the actual numbers.
+8. Calculate the energy requirements to train GPT-4 at 100% renewable energy. What area of solar panels would be needed?
+9. Research the lengths of the 5 longest rivers. Calculate their combined length in km and miles, and what percentage of Earth's circumference that represents.
+10. Multi-step: Find the founding years of FAANG companies, calculate the average age, and determine which was most valuable relative to its age.
+11. Using Wikipedia research: list all US presidents who served two terms, calculate the average years between their inauguration and a major recession, and identify patterns.
+12. Solve: An investment doubles every 7 years at what compound interest rate? If you invest $10K at that rate, how much do you have after 30 years?
+13. Research the distances between Earth and the 8 planets. Calculate how long light takes to reach each and rank them.
+14. Reason about: If Moore's Law continues, how many transistors will a chip have in 2035? When will atomic-scale limits be reached?
+15. Calculate the carbon footprint of flying from Delhi to London vs taking a train where possible. Factor in aircraft type and occupancy.
+16. Research the tallest buildings in the world. If stacked, how high would the top 10 reach? Compare to Mount Everest.
+17. Multi-step problem: A company's revenue grows 20% year over year. Costs are 70% of revenue in year 1. Costs grow at 15%. When does profit margin exceed 40%?
+18. Using reasoning: if every human generated 1GB of data daily, how many years to fill a 1 exabyte data center? How many data centers would we need for the world?
+19. Research Olympic medal counts for India across all summer games. Calculate the medals-per-billion-population ratio and compare with 5 other countries.
+20. Solve: A code review takes 30 min per 100 lines. A 50K line codebase needs reviewing. With 5 reviewers working 6 hours daily, how many days?
+21. Calculate the total compute cost of running inference on 1 billion queries per day at $0.03 per 1000 tokens, averaging 500 tokens per query.
+22. Research world coffee production by country, calculate per-capita consumption for the top 5 consumer countries, and identify the efficiency gap.
+23. Multi-step reasoning: If AI replaces 30% of tasks in 40% of jobs, what percentage of total work hours are affected? How does this translate to economic output?
+24. Calculate the orbital parameters: if a satellite orbits at 400km altitude, what is its period? Compare with ISS actual data.
+25. Research and calculate: How many trees would it take to offset the carbon emissions of the entire Bitcoin network annually?
+26. Solve the Monty Hall problem and prove the answer using probability theory, then extend it to 4 doors.
+27. Calculate the storage requirements for YouTube's entire video library at 720p, 1080p, and 4K resolutions.
+28. Research inflation rates for 5 major economies over 10 years. Calculate the real return on a savings account yielding 3% nominal in each.
+29. Multi-step: If AI model sizes double every 18 months, and current models are 1.8T parameters, when will we reach 1 quadrillion? What hardware is needed?
+30. Calculate the water usage of training a large language model. Compare it to the daily water consumption of a small city.
+
+## ── NEED FINE-TUNE (30) ────────────────────────────────────────────
+1. What is 2847 times 392?
+2. Calculate the square root of 1764.
+3. What percentage is 87 of 435?
+4. Search Wikipedia for the capital of Brazil.
+5. Calculate 15% tip on a $85.50 bill.
+6. What is the population of Japan according to Wikipedia?
+7. Convert 72 degrees Fahrenheit to Celsius.
+8. Search: who invented the telephone?
+9. Calculate the area of a circle with radius 7.
+10. What is Newton's second law of motion?
+11. Calculate 2 to the power of 20.
+12. Search Wikipedia for the year of India's independence.
+13. What is the volume of a sphere with radius 5?
+14. Calculate the average of these numbers: 23, 45, 67, 89, 12.
+15. Search: who wrote "Pride and Prejudice"?
+16. Convert 5 miles to kilometers.
+17. What is the factorial of 10?
+18. Search Wikipedia for the longest river in Africa.
+19. Calculate 40% of 250.
+20. What is the speed of light in km/s?
+21. Calculate compound interest on $1000 at 5% for 3 years.
+22. Search: who won the 2022 FIFA World Cup?
+23. What is 7 factorial divided by 5 factorial?
+24. Convert 100 kilograms to pounds.
+25. Search Wikipedia for the chemical formula of water.
+26. Calculate the hypotenuse of a right triangle with sides 3 and 4.
+27. What year was the first computer invented?
+28. Calculate 1000 divided by 7 to 4 decimal places.
+29. Search: what is the boiling point of water at sea level?
+30. Calculate the perimeter of a rectangle 12m by 8m.
+
+## ── KEEP ON SLM (30) ──────────────────────────────────────────────
+1. What is 2 + 2?
+2. What is 10 times 5?
+3. What is 100 divided by 4?
+4. What is 15 minus 7?
+5. What is a calculator?
+6. What is addition?
+7. What is subtraction?
+8. What is multiplication?
+9. What is division?
+10. What is a percentage?
+11. What is pi?
+12. What is a square root?
+13. What is zero?
+14. What is an integer?
+15. What is a fraction?
+16. Is 7 a prime number?
+17. What is 1 squared?
+18. What is half of 10?
+19. What is double 25?
+20. How many sides does a triangle have?
+21. What is the area formula of a rectangle?
+22. What is greater: 5 or 3?
+23. What is 0 times 100?
+24. Is 10 even or odd?
+25. What is 1 + 0?
+26. What is a decimal?
+27. How many degrees in a circle?
+28. What is an equation?
+29. What is a number line?
+30. What is counting?

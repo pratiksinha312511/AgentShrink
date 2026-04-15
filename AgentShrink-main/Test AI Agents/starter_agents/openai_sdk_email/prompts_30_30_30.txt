@@ -1,0 +1,99 @@
+# OpenAI Agents SDK Email Agent — Prompts (30-30-30)
+# Upstream: Sarvam AI (sarvam-m) via AgentShrink Gateway
+# Framework: OpenAI Agents SDK | Adapter: openai_sdk_adapter.py
+
+## ── KEEP ON LLM (30) ──────────────────────────────────────────────
+1. Draft a formal business proposal email to a Fortune 500 client about an AI integration partnership, including ROI projections and implementation timeline.
+2. Write a diplomatic email to a client explaining a project delay while maintaining confidence and offering concrete remediation steps.
+3. Compose a series of 5 drip campaign emails for a SaaS product launch, each with increasing urgency and different value propositions.
+4. Write a sensitive HR email addressing a team restructuring, balancing transparency with empathy and legal compliance.
+5. Draft an investor update email summarizing Q3 results with both good and bad news, maintaining a confident but honest tone.
+6. Compose a technical post-mortem email for a major service outage, explaining root cause, customer impact, and prevention measures.
+7. Write a cross-cultural business email to Japanese partners, respecting cultural norms while negotiating contract terms.
+8. Draft a board meeting minutes email that captures complex strategic discussions with action items and accountability assignments.
+9. Write a customer win-back email campaign (3 emails) for churned enterprise customers, personalizing based on their exit reasons.
+10. Compose a thought leadership email newsletter about the intersection of AI and sustainability, with original analysis.
+11. Draft an email to a large team announcing a pivot in company strategy, addressing likely concerns proactively.
+12. Write a crisis communication email to all stakeholders during a data breach, with legal review considerations.
+13. Compose a negotiation email for a major vendor contract renewal, using anchoring and BATNA principles.
+14. Draft a fundraising pitch email for a nonprofit, weaving a compelling narrative with measurable impact data.
+15. Write an email translating complex technical architecture decisions for non-technical C-suite executives.
+16. Compose a collaborative proposal email bringing together competing internal teams on a shared initiative.
+17. Draft a customer success email with personalized usage analytics, identifying upsell opportunities naturally.
+18. Write an email announcing a price increase to existing customers, managing expectations and emphasizing added value.
+19. Compose a partnership proposal email to a competing company for a joint market research initiative.
+20. Draft an internal email establishing new AI-usage policies, balancing innovation encouragement with risk management.
+21. Write a persuasive email to get budget approval for an experimental R&D project with uncertain ROI.
+22. Compose a 360-feedback summary email for a team lead, synthesizing anonymous feedback diplomatically.
+23. Draft a complex event invitation email for a multi-track tech conference with personalized track recommendations.
+24. Write an email to international regulatory bodies explaining your company's AI compliance measures.
+25. Compose a series of onboarding emails (5 total) for enterprise clients integrating your API product.
+26. Draft an email resolving a dispute between a client and your delivery team while preserving both relationships.
+27. Write a year-end retrospective email for a 200-person engineering org with data-driven insights and team highlights.
+28. Compose an email announcing open-source release of proprietary technology, managing community expectations.
+29. Draft a recruitment outreach email for a niche technical role that stands out from typical recruiter spam.
+30. Write an email to the entire company explaining a failed product launch with lessons learned and next steps.
+
+## ── NEED FINE-TUNE (30) ────────────────────────────────────────────
+1. Send a meeting invitation email for next Tuesday at 2 PM about the project review.
+2. Write a follow-up email after a sales call summarizing the key discussion points.
+3. Draft a thank-you email to a conference speaker for their presentation.
+4. Compose an out-of-office auto-reply mentioning backup contacts and return date.
+5. Write an email requesting PTO for next week with a brief handoff plan.
+6. Draft a weekly status update email with three sections: done, in-progress, blockers.
+7. Compose an email introducing a new team member to the department.
+8. Write an email requesting feedback on a document attached to the email.
+9. Draft a reminder email for an approaching deadline with the relevant details.
+10. Compose an email to IT support reporting a software bug with steps to reproduce.
+11. Write a congratulations email to a colleague on their promotion.
+12. Draft an email scheduling a 1:1 meeting with a direct report.
+13. Compose an email forwarding a customer complaint to the appropriate team with context.
+14. Write an email declining a meeting invitation politely with a suggested alternative.
+15. Draft a brief project kickoff email outlining roles, timeline, and first milestones.
+16. Compose an email requesting access to a shared drive or tool.
+17. Write an email summarizing action items from a recent team meeting.
+18. Draft an email to a vendor requesting a product demo or trial.
+19. Compose a brief email sharing an interesting article with your team.
+20. Write an email confirming receipt of a deliverable and noting next steps.
+21. Draft an email asking a colleague to cover your responsibilities during vacation.
+22. Compose an email to HR asking about benefits enrollment details.
+23. Write an email updating a client on project progress with percentage completion.
+24. Draft an email requesting budget for a team offsite event.
+25. Compose an email sharing meeting notes with attendees.
+26. Write an email to a new client introducing yourself and your team.
+27. Draft an email requesting references from a job candidate.
+28. Compose an internal announcement about updated office hours.
+29. Write an email requesting a code review from a senior engineer.
+30. Draft an email to facilities about a workspace issue.
+
+## ── KEEP ON SLM (30) ──────────────────────────────────────────────
+1. Send an email saying "Hi, got it, thanks!"
+2. Reply "Confirmed" to a meeting invite.
+3. Send "See you at 3 PM" to a colleague.
+4. Forward an email with "FYI" as the message.
+5. Reply "Sounds good, let's proceed."
+6. Send "Thanks for the update!"
+7. Reply "I'll look into this."
+8. Send "Running 5 minutes late."
+9. Reply "Received, will review."
+10. Send "Happy birthday!" to a coworker.
+11. Reply "Approved" to an expense request.
+12. Send "Can we reschedule to Thursday?"
+13. Reply "No questions from my end."
+14. Send "Welcome to the team!"
+15. Reply "Noted, thanks for the heads up."
+16. Send a one-line email: "The link is broken."
+17. Reply "I agree with this approach."
+18. Send "Please find attached."
+19. Reply "Will do."
+20. Send "Out of office until Monday."
+21. Reply "Thanks for sharing."
+22. Send "Let's sync tomorrow morning."
+23. Reply "Done."
+24. Send "Quick question: what's the deadline?"
+25. Reply "Looks good to me."
+26. Send "RSVP: Yes, I'll attend."
+27. Reply "I'll follow up on this."
+28. Send "Congrats!"
+29. Reply "Acknowledged."
+30. Send "Talk soon!"

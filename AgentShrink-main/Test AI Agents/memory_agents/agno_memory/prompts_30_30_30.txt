@@ -1,0 +1,99 @@
+# Memory Agent — Prompts (30-30-30)
+# Upstream: Sarvam AI (sarvam-m) via AgentShrink Gateway
+# Framework: Agno + Memory | Adapter: agno_adapter.py
+
+## ── KEEP ON LLM (30) ──────────────────────────────────────────────
+1. I'm a senior ML engineer working on production LLM systems. Remember my background and help me design a model serving architecture for 10K QPS.
+2. Based on our previous conversations about my project, suggest how to refactor the monolithic service into microservices.
+3. I told you about my team's tech stack last time. Given that context, recommend a testing strategy for our new features.
+4. Remember that I prefer functional programming patterns. Review this code and suggest improvements aligned with my style.
+5. Based on my role as CTO that I mentioned earlier, draft a quarterly technology review for the board.
+6. I mentioned my startup is in fintech. Based on that context, analyze these 3 regulatory frameworks and recommend the best compliance approach.
+7. You know I work with healthcare data from our past conversations. Help me design a HIPAA-compliant data pipeline considering the constraints I've shared.
+8. Based on everything you know about my project goals, create a 6-month technical roadmap with priorities.
+9. I've been discussing my hiring challenges. Draft job descriptions for 3 roles that align with the culture and technical requirements I described.
+10. Remember my budget constraints from our earlier discussion. Evaluate these 5 cloud infrastructure options and recommend the most cost-effective.
+11. Based on my preference for TypeScript that I mentioned, help me migrate this Python codebase with architecture improvements.
+12. You know about my side project from previous chats. Help me design a monetization strategy based on the user feedback I shared.
+13. I told you about my team's skill gaps. Create a training program that addresses those specific areas.
+14. Based on the performance issues I described earlier, create a comprehensive monitoring and alerting strategy.
+15. Remember my product's target market in India. Help me localize the UX for Hindi-speaking users considering the cultural context I shared.
+16. You know my competitor analysis from our discussions. Draft a differentiation strategy for the upcoming product launch.
+17. Based on my previous architecture decisions, help me evaluate whether to add GraphQL or stick with REST.
+18. I discussed my data privacy concerns earlier. Review this data processing agreement and flag potential issues.
+19. Remember the deployment failures I told you about. Create a rollback strategy and incident response playbook.
+20. Based on my experience level you know about, recommend advanced machine learning papers I should read next.
+21. You know my team uses Agile. Based on the sprint velocity data I shared, predict our delivery timeline for the remaining features.
+22. Remember my interest in open-source contribution. Help me evaluate which projects align with my skills and career goals.
+23. Based on my customer feedback data I've been sharing, identify the top 5 product improvement opportunities.
+24. I mentioned my conference talk next month. Draft an abstract that builds on the technical narrative we've been developing.
+25. You know about my system's scaling challenges. Design a caching strategy that addresses the specific bottlenecks I described.
+26. Based on the API design patterns I prefer, review these endpoint designs and suggest improvements.
+27. Remember the machine learning models I'm using. Help me set up an A/B testing framework for model comparison.
+28. You know my career goals from our discussions. Draft a professional development plan for the next year.
+29. Based on the customer segments I've described, create personalized onboarding flows for each segment.
+30. Remember all the technical decisions we've discussed. Create a comprehensive Architecture Decision Record (ADR) document.
+
+## ── NEED FINE-TUNE (30) ────────────────────────────────────────────
+1. Remember that my favorite programming language is Python.
+2. My timezone is IST (UTC+5:30). Remember this for scheduling.
+3. I prefer dark mode in all applications. Note this.
+4. My name is Arun and I'm a software developer.
+5. I work at a company called TechStartup Inc.
+6. Remember that I use VS Code as my editor.
+7. I have 5 years of experience in backend development.
+8. My team has 8 members. Remember this.
+9. We use PostgreSQL as our primary database.
+10. Remember that our deploy day is every Thursday.
+11. I prefer bullet points over long paragraphs in summaries.
+12. My project is called "DataFlow" — remember this name.
+13. I don't like using abbreviations in documentation.
+14. Remember that I have a standing 1:1 meeting on Mondays at 10 AM.
+15. My preferred cloud provider is AWS.
+16. I'm learning Rust in my spare time.
+17. Remember that our API version is v3.2.
+18. I prefer using Docker Compose for local development.
+19. My email is arun@example.com — store this.
+20. Remember that I'm based in Bangalore.
+21. I use Git with conventional commits.
+22. My screen resolution is 2560x1440.
+23. Remember that I prefer tabs over spaces.
+24. Our sprint length is 2 weeks.
+25. I like my coffee black — remember this for casual conversation.
+26. Remember that I'm training for a marathon.
+27. My phone number for 2FA is registered.
+28. I prefer morning meetings over afternoon ones.
+29. Remember my default branch is "main" not "master".
+30. I celebrate my work anniversary on March 15.
+
+## ── KEEP ON SLM (30) ──────────────────────────────────────────────
+1. What is my name?
+2. What language do I prefer?
+3. What is my timezone?
+4. Where do I work?
+5. What editor do I use?
+6. What database do we use?
+7. When is our deploy day?
+8. What is my project called?
+9. How many team members do I have?
+10. What cloud provider do I prefer?
+11. Am I learning any new language?
+12. What is our API version?
+13. Do I prefer Docker?
+14. What is my email?
+15. Where am I based?
+16. What commit style do I use?
+17. How long are our sprints?
+18. What is my default branch name?
+19. What is my work anniversary date?
+20. Do I prefer dark mode or light mode?
+21. Do I prefer morning or afternoon meetings?
+22. Do I prefer bullet points or paragraphs?
+23. What is my experience level?
+24. Do I use tabs or spaces?
+25. What resolution is my screen?
+26. How do I take my coffee?
+27. Am I training for anything?
+28. What is my team size?
+29. When is my 1:1 meeting?
+30. Do I use abbreviations in docs?

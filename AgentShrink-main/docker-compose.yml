@@ -1,0 +1,64 @@
+# AgentShrink — Docker Compose for Hosted Deployment
+#
+# Usage:
+#   docker compose up -d
+#   docker compose logs -f
+#
+# Volumes:
+#   agentshrink-data — persistent SQLite DB + analysis output
+#
+# Override with .env file for secrets.
+
+services:
+  gateway:
+    build: .
+    command: >
+      python -m agentshrink gateway
+        --host 0.0.0.0 --port 8100
+        --db /data/logs.db
+        --output-dir /data/output
+    ports:
+      - "8100:8100"
+    volumes:
+      - agentshrink-data:/data
+    env_file: .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/health')"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+
+  backend:
+    build: .
+    command: >
+      python -m uvicorn dashboard.backend.main:app
+        --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - agentshrink-data:/data
+    env_file: .env
+    depends_on:
+      gateway:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/status')"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+
+  frontend:
+    build: .
+    command: >
+      sh -c "cd dashboard/frontend && npx next start --hostname 0.0.0.0 --port 3000"
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  agentshrink-data:

@@ -1,0 +1,99 @@
+# Browser Automation Agent — Prompts (30-30-30)
+# Upstream: Sarvam AI (sarvam-m) via AgentShrink Gateway
+# Framework: browser-use + ChatOpenAI | Adapter: langchain_adapter.py
+
+## ── KEEP ON LLM (30) ──────────────────────────────────────────────
+1. Navigate to amazon.com, search for "noise cancelling headphones", filter by price under $200, sort by customer ratings, and create a comparison table of the top 5 results.
+2. Go to LinkedIn, search for "AI Engineer" jobs in Bangalore, filter by remote, and compile a list with company, salary range, and requirements.
+3. Navigate to GitHub trending, analyze the top 10 repositories, visit each, and summarize their purpose, star count, and primary language.
+4. Go to weather.com, get the 10-day forecast for Mumbai, compare it with Delhi, and recommend the better city for an outdoor event.
+5. Navigate to ProductHunt, find today's top 5 launches, visit each product website, and assess which solves a genuine need.
+6. Go to arxiv.org, search for "LLM agents" papers from the last month, and compile the 5 most cited with abstracts and key findings.
+7. Navigate to Flipkart, compare 3 specific laptops by opening each product page and creating a detailed spec comparison table.
+8. Go to news.ycombinator.com, find 5 stories about AI regulation, visit the linked articles, and summarize key regulatory proposals.
+9. Navigate to booking.com, search hotels in Goa for next weekend, filter 4-star and above, and list the top 5 with prices and ratings.
+10. Go to Google Scholar, search for the author "Geoffrey Hinton", and list his 5 most-cited papers with citation counts.
+11. Navigate to Crunchbase, search for AI startups funded in 2026, and create a list of the top 10 by funding amount.
+12. Go to YouTube, search "machine learning tutorial", sort by view count, and summarize the top 3 video descriptions.
+13. Navigate to Stack Overflow, find the most upvoted Python questions this month, and categorize them by topic.
+14. Go to Zillow, search for homes in San Francisco under $1M, and compile a list of 5 with key details.
+15. Navigate to TechCrunch, find articles about autonomous vehicles from this week, and summarize key developments.
+16. Go to Google Flights, search for Mumbai to London flights next month, and find the cheapest option with details.
+17. Navigate to Reddit r/MachineLearning, find the top posts this week, and summarize the key discussions.
+18. Go to Indeed, compare "Data Scientist" salaries across 5 major US cities using salary explorer.
+19. Navigate to the Apple website, configure a MacBook Pro with specific specs, and report the final price.
+20. Go to Wikipedia, research the history of artificial intelligence, and create a timeline of the 10 most important milestones.
+21. Navigate to Coursera, find the top-rated machine learning courses, and compare them on price, duration, and instructor.
+22. Go to Google Maps, find the top-rated restaurants near Times Square, and compare their ratings and price range.
+23. Navigate to ESPN, get the latest cricket score for an ongoing match, and summarize the match situation.
+24. Go to World Bank data portal, find India's GDP growth rate for the last 5 years, and create a trend summary.
+25. Navigate to Glassdoor, compare employee reviews for Google vs Microsoft vs Amazon on work-life balance.
+26. Go to HuggingFace, find the top 5 text generation models by downloads, and compare their specs.
+27. Navigate to OpenAI's pricing page and compare it with Anthropic's and Google's pricing for API usage.
+28. Go to multiple news sites, find stories about a specific topic, and identify media bias patterns.
+29. Navigate to npmjs.com, find the most-downloaded JavaScript frameworks this month, and compare trends.
+30. Go to SEC.gov EDGAR, find Apple's latest 10-K filing, and extract key financial metrics.
+
+## ── NEED FINE-TUNE (30) ────────────────────────────────────────────
+1. Go to google.com and search for "best AI frameworks 2026".
+2. Navigate to Wikipedia and find the population of India.
+3. Go to amazon.com and search for "mechanical keyboard".
+4. Navigate to github.com and find the repository for React.
+5. Go to youtube.com and search for "Python tutorial".
+6. Navigate to weather.com and get the current temperature for Mumbai.
+7. Go to flipkart.com and search for "iPhone 16".
+8. Navigate to bbc.com and find the top headline.
+9. Go to stackoverflow.com and search for "how to sort a list in Python".
+10. Navigate to twitter.com (x.com) and check trending topics.
+11. Go to imdb.com and find the rating for "Inception".
+12. Navigate to reddit.com/r/technology and find the top post.
+13. Go to booking.com and search for hotels in Mumbai.
+14. Navigate to maps.google.com and search for "coffee shops near me".
+15. Go to linkedin.com and search for "software engineer" jobs.
+16. Navigate to spotify.com and find today's top playlist.
+17. Go to medium.com and search for articles about "AI agents".
+18. Navigate to quora.com and find questions about "machine learning".
+19. Go to netflix.com and check what's trending.
+20. Navigate to time.is and get the current UTC time.
+21. Go to coinmarketcap.com and get the price of Bitcoin.
+22. Navigate to npmjs.com and search for "express" package.
+23. Go to pypi.org and search for "fastapi" package details.
+24. Navigate to cnn.com and find the latest tech news.
+25. Go to amazon.com and check the price of a specific product.
+26. Navigate to github.com/explore and list trending repos.
+27. Go to dictionary.com and look up the word "ephemeral".
+28. Navigate to calculator.net and use the BMI calculator.
+29. Go to xe.com and convert 100 USD to INR.
+30. Navigate to speedtest.net and describe what it does.
+
+## ── KEEP ON SLM (30) ──────────────────────────────────────────────
+1. Open google.com.
+2. Click on the search bar.
+3. Type "hello" in the search box.
+4. Press Enter.
+5. Scroll down the page.
+6. Go back to the previous page.
+7. Open a new tab.
+8. Close the current tab.
+9. Navigate to example.com.
+10. Click the first link on a page.
+11. Refresh the page.
+12. Scroll to the top.
+13. Click the "Home" button.
+14. Type a URL in the address bar.
+15. Read the page title.
+16. Check if a page has loaded.
+17. Find text on the page.
+18. Click a button labeled "Submit".
+19. Fill in a text field.
+20. Select a dropdown option.
+21. Check a checkbox.
+22. Read the header of the page.
+23. Count links on a page.
+24. Take a screenshot.
+25. Read the page URL.
+26. Click "Accept cookies".
+27. Close a popup.
+28. Navigate forward.
+29. Open the menu.
+30. Log in with given credentials.

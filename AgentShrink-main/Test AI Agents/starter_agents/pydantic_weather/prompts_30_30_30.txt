@@ -1,0 +1,99 @@
+# PydanticAI Weather Agent — Prompts (30-30-30)
+# Upstream: Sarvam AI (sarvam-m) via AgentShrink Gateway
+# Framework: PydanticAI | Adapter: pydantic_adapter.py
+
+## ── KEEP ON LLM (30) ──────────────────────────────────────────────
+1. Compare the 7-day weather forecast for Mumbai, Delhi, and Bangalore. Which city is best for an outdoor wedding this weekend?
+2. Analyze historical weather patterns for Chennai during monsoon season. How does this year compare to the 10-year average?
+3. Create a travel weather advisory for a 2-week road trip from Delhi to Ladakh, covering altitude sickness, temperature drops, and road conditions.
+4. Evaluate how weather conditions in the Indian Ocean will affect the upcoming hurricane season. Provide a risk assessment for coastal cities.
+5. Write a comprehensive weather briefing for a pilot planning a flight from Mumbai to London, covering jet stream, turbulence, and weather systems.
+6. Analyze the correlation between current weather patterns and agricultural yields in Punjab for the current growing season.
+7. Create a detailed emergency preparedness report for Kolkata based on the current cyclone forecast.
+8. Compare weather patterns across 5 major Asian cities and predict which will experience extreme weather events this month.
+9. Analyze how climate change is affecting monsoon patterns in South Asia over the past 20 years with current data.
+10. Write a weather impact assessment for a large outdoor music festival planned for next week in Pune.
+11. Create a shipping weather advisory for vessels traveling from Mumbai to Dubai this week.
+12. Analyze the El Niño/La Niña cycle's current state and predict its impact on Indian weather for the next 3 months.
+13. Write a comprehensive weather report for renewable energy planning in Rajasthan, covering solar irradiance and wind patterns.
+14. Create a health advisory based on the current heat index, UV index, and air quality for major Indian cities.
+15. Analyze the weather conditions for cricket match play across 4 stadium cities this weekend.
+16. Write a logistics weather advisory for a supply chain spanning Delhi-Mumbai-Bangalore-Hyderabad.
+17. Compare the microclimate variations within Mumbai (coastal vs inland) and how they affect daily life.
+18. Create a detailed weather forecast for Himalayan trekking routes this week with safety recommendations.
+19. Analyze current atmospheric conditions and predict fog/smog likelihood for northern India.
+20. Write a farmer's advisory for the Deccan Plateau region covering rainfall, humidity, and pest risk.
+21. Create a comparison of real-time weather data accuracy across major weather services for Indian locations.
+22. Analyze how the current weather pattern will affect water reservoir levels in Maharashtra.
+23. Write a weather-based retail demand forecast for umbrellas, winter clothing, and cooling products across India.
+24. Create a detailed marine weather forecast for fishermen along the Coromandel coast.
+25. Analyze the impact of current weather conditions on solar energy generation across India's solar parks.
+26. Write a comprehensive aviation weather digest for all major Indian airport operations today.
+27. Create a wildfire risk assessment based on current weather conditions for forest regions.
+28. Analyze weather data to recommend the best cities for data center cooling efficiency in India.
+29. Write a climate resilience assessment for a coastal city based on current weather trends.
+30. Create a multi-day weather strategy document for disaster relief operations in a flood-prone region.
+
+## ── NEED FINE-TUNE (30) ────────────────────────────────────────────
+1. What is the weather forecast for Mumbai today?
+2. Will it rain in Delhi this weekend?
+3. What is the temperature in Bangalore right now?
+4. Show the 5-day forecast for Hyderabad.
+5. Is it safe to travel to Goa this week considering weather?
+6. What is the humidity level in Chennai today?
+7. What is the UV index in Jaipur?
+8. Will there be fog in Delhi tomorrow morning?
+9. What is the wind speed in Mumbai right now?
+10. Is it going to be cloudy in Kolkata today?
+11. What is the air quality index for Delhi?
+12. What time is sunrise in Bangalore tomorrow?
+13. Will it snow in Shimla this week?
+14. What is the high and low temperature for Pune today?
+15. Is there a weather warning for the Andaman Islands?
+16. What is the rainfall prediction for Kerala today?
+17. What is the feels-like temperature in Delhi?
+18. Will the monsoon arrive on time this year?
+19. What time is sunset in Mumbai today?
+20. Is it a good day for outdoor sports in Pune?
+21. What is the visibility in Delhi due to smog?
+22. Compare today's temperature with yesterday for Bangalore.
+23. What is the current weather in Manali?
+24. How hot will it be in Nagpur this week?
+25. Is there a cyclone warning for the Bay of Bengal?
+26. What is the weather like at the Taj Mahal today?
+27. Will weekend weather be good for a picnic in Mysore?
+28. What is the dew point in Kochi today?
+29. Is there a heat wave advisory for Rajasthan?
+30. What is the weather in Varanasi for Diwali this year?
+
+## ── KEEP ON SLM (30) ──────────────────────────────────────────────
+1. What is weather?
+2. What causes rain?
+3. What is temperature?
+4. What is humidity?
+5. What is a forecast?
+6. What is a monsoon?
+7. What is a cyclone?
+8. What is wind speed?
+9. What is UV index?
+10. What does cloudy mean?
+11. What is fog?
+12. What causes thunder?
+13. What is hail?
+14. What is a rainbow?
+15. What is the boiling point of water?
+16. What is Celsius?
+17. What is Fahrenheit?
+18. What causes snowfall?
+19. What is air pressure?
+20. What is a weather station?
+21. What is visibility?
+22. What is dew point?
+23. What causes wind?
+24. What is a tornado?
+25. What is barometric pressure?
+26. What does sunny mean?
+27. What is precipitation?
+28. How many seasons are there in India?
+29. What causes ice?
+30. What is a weather app?

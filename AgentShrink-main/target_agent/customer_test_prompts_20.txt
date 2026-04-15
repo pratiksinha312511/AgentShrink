@@ -1,0 +1,20 @@
+I ordered black shoes (ORD-20001) but received white ones. Need refund.
+My package ORD-20002 arrived broken. The glass was shattered.
+Got the wrong size for my jacket ORD-20003. Want to return.
+Received completely different product than shown (ORD-20004).
+The item in ORD-20005 is defective out of the box.
+My headphones from ORD-20006 stopped working immediately.
+The product I got (ORD-20007) is not what I ordered.
+I received a used item instead of new (ORD-20008).
+Missing parts in order ORD-20009. Can't use it.
+Product color mismatch in ORD-20010. Want refund.
+I changed my mind about ORD-20011. Can I return it?
+Don't need the product anymore (ORD-20012).
+Ordered by mistake (ORD-20013). Want refund.
+Bought wrong item accidentally (ORD-20014).
+I no longer want ORD-20015.
+Can I cancel and refund ORD-20016?
+I regret buying ORD-20017.
+Return request for ORD-20018.
+Decided not to keep ORD-20019.
+Want to send back ORD-20020.

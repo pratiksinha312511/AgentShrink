@@ -1,0 +1,99 @@
+# Talk-to-DB Agent — Prompts (30-30-30)
+# Upstream: Sarvam AI (sarvam-m) via AgentShrink Gateway
+# Framework: LangChain + GibsonAI | Adapter: langchain_adapter.py
+
+## ── KEEP ON LLM (30) ──────────────────────────────────────────────
+1. Design a database schema for a multi-tenant SaaS application with role-based access control, audit logging, and soft deletes. Generate the complete DDL.
+2. Write a complex SQL query to calculate monthly cohort retention rates for users, showing the percentage active in each subsequent month.
+3. Create an optimized query to find the top 10 products by revenue that also have declining month-over-month sales.
+4. Design and write a SQL query implementing a recommendation engine using collaborative filtering on purchase history.
+5. Write a query to detect potential fraud patterns: orders with unusually high values, multiple addresses, or rapid repeat purchases.
+6. Create a time-series analysis query that identifies seasonal trends in order data across 3 years of records.
+7. Design a query for geographic clustering of customers and calculate distance-based market penetration for each cluster.
+8. Write a recursive CTE query to traverse a hierarchical employee organization chart and calculate total compensation per department tree.
+9. Create an optimized query plan for a reporting dashboard that joins 6+ tables with millions of rows each.
+10. Design a slowly changing dimension (SCD Type 2) implementation and write the merge/upsert logic.
+11. Write a query to perform A/B test statistical analysis on conversion rates between two user segments.
+12. Create a window function query that ranks products by sales within each category while calculating running totals.
+13. Design a query to identify data quality issues: missing values, outliers, duplicate records, and referential integrity violations.
+14. Write a complex stored procedure for an order processing pipeline with inventory checks, payment validation, and shipping.
+15. Create a query to calculate customer lifetime value (CLV) using historical purchase patterns and churn probability.
+16. Design an event sourcing pattern in SQL and write queries to rebuild state from the event log.
+17. Write a query to optimize inventory reorder points based on historical demand, lead times, and safety stock calculations.
+18. Create a full-text search implementation using SQL with relevance scoring and keyword highlighting.
+19. Design a query for market basket analysis using association rules (support, confidence, lift).
+20. Write a migration script to refactor a monolithic schema into a microservices-friendly design.
+21. Create a materialized view strategy for a real-time analytics dashboard with incremental refresh logic.
+22. Design a multi-currency pricing engine in SQL that handles exchange rate fluctuations and historical pricing.
+23. Write a query implementing a sliding window rate limiter using SQL timestamps and counts.
+24. Create a data pipeline query that denormalizes operational data into an analytics-friendly star schema.
+25. Design a partitioning strategy for a table with 1 billion rows and write the DDL with constraints.
+26. Write a query to detect network effects in a social graph stored in a relational database.
+27. Create a temporal query that shows how customer segments have shifted over the past 12 months.
+28. Design a row-level security implementation and write the policy-enforcing queries.
+29. Write a query to generate a financial reconciliation report matching transactions across systems.
+30. Create an ETL pipeline using SQL CTEs that cleanses, transforms, and loads data with error handling.
+
+## ── NEED FINE-TUNE (30) ────────────────────────────────────────────
+1. Write a SQL query to find the top 10 customers by total order amount.
+2. Show all orders placed in the last 30 days with customer names.
+3. Write a query to count the number of products in each category.
+4. Find all customers who have never placed an order.
+5. Write a query to calculate the average order value by month.
+6. List all products that are out of stock.
+7. Write a query to find duplicate email addresses in the users table.
+8. Show the total revenue grouped by product category.
+9. Write a query to find orders with more than 5 items.
+10. List the top 5 most popular products by quantity sold.
+11. Write a JOIN query to show order details with product names and customer info.
+12. Find the date of the first and last order for each customer.
+13. Write a query to calculate year-over-year revenue growth.
+14. Show all products with prices above the category average.
+15. Write a query to find customers in the same city.
+16. List employees who report to a specific manager.
+17. Write a query to update prices by 10% for a specific category.
+18. Find all orders that were placed but not shipped.
+19. Write a query to create an index on the orders table.
+20. Show the distribution of order amounts in ranges ($0-50, $50-100, etc.).
+21. Write a query to backup data from one table to another.
+22. Find the most recent login for each user.
+23. Write a query to delete records older than 1 year.
+24. List all foreign key relationships in the database.
+25. Write a query to add a new column with a default value.
+26. Find the running total of sales by date.
+27. Write a query to merge two tables with conflict resolution.
+28. Show the count of null values in each column.
+29. Write a query to find the second highest salary.
+30. List all tables and their row counts.
+
+## ── KEEP ON SLM (30) ──────────────────────────────────────────────
+1. What is SQL?
+2. What does SELECT do?
+3. What is a table?
+4. What is a primary key?
+5. What does WHERE do?
+6. What is a JOIN?
+7. What is INSERT?
+8. What is UPDATE?
+9. What is DELETE?
+10. What is a database?
+11. What does ORDER BY do?
+12. What is GROUP BY?
+13. What is a foreign key?
+14. What is an index?
+15. What is NULL?
+16. What does COUNT do?
+17. What is a schema?
+18. What is a query?
+19. What does DISTINCT do?
+20. What is a column?
+21. What is a row?
+22. What does LIMIT do?
+23. What is a view?
+24. What is HAVING?
+25. What does AVG do?
+26. What is a stored procedure?
+27. What does SUM do?
+28. What is a constraint?
+29. What is a transaction?
+30. What does MAX do?

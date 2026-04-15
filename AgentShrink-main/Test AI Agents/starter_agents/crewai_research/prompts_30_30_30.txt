@@ -1,0 +1,99 @@
+# CrewAI Research Agent — Prompts (30-30-30)
+# Upstream: Sarvam AI (sarvam-m) via AgentShrink Gateway
+# Framework: CrewAI | Adapter: crewai_adapter.py
+
+## ── KEEP ON LLM (30) ──────────────────────────────────────────────
+1. Research and write a comprehensive analysis of how quantum computing will impact cybersecurity within the next 5 years, including specific attack vectors and defense strategies.
+2. Investigate the competitive landscape of AI chip manufacturers. Compare NVIDIA, AMD, Intel, and 5 startups on architecture, performance, and market positioning.
+3. Analyze the environmental impact of large language model training. Calculate carbon footprints and propose actionable sustainability frameworks.
+4. Research the intersection of blockchain and AI: identify 10 real use cases that have achieved product-market fit, not theoretical applications.
+5. Write a deep-dive report on CRISPR's commercial applications beyond healthcare, including agriculture, materials science, and environmental remediation.
+6. Investigate the economics of autonomous vehicle deployment: compare Waymo, Cruise, and Tesla approaches with unit economics analysis.
+7. Research how synthetic biology startups are disrupting the food industry. Map the value chain from lab to consumer.
+8. Analyze the geopolitical implications of AI regulation differences between the US, EU, China, and India.
+9. Investigate the state of nuclear fusion energy: compare approaches by Commonwealth Fusion, TAE Technologies, and government programs.
+10. Research the emerging field of neuromorphic computing. How does it compare to traditional GPU-based AI in terms of efficiency?
+11. Write a technology adoption forecast for spatial computing (AR/VR) in enterprise settings over the next 3 years.
+12. Investigate how AI is transforming drug discovery. Compare traditional pharma timelines with AI-accelerated approaches.
+13. Research the impact of generative AI on creative industries: music, film, design. Include economic displacement and creation data.
+14. Analyze the technical and business challenges of achieving AGI. Compare perspectives from leading AI labs.
+15. Investigate the state of satellite internet (Starlink, Kuiper, OneWeb): coverage, performance, and market dynamics.
+16. Research how edge AI is transforming manufacturing. Identify 5 case studies with measurable ROI.
+17. Analyze the future of digital identity: compare decentralized ID, government ID, and corporate ID approaches.
+18. Investigate the role of AI in climate change mitigation. Map specific technologies to climate goals.
+19. Research the state of AI in education: personalized learning platforms, their effectiveness data, and scaling challenges.
+20. Analyze the convergence of robotics and AI in last-mile logistics. Compare Amazon, FedEx, and startup approaches.
+21. Investigate how AI is being used in judicial systems worldwide. Assess fairness, accuracy, and ethical concerns.
+22. Research the emerging "AI agent" economy: how autonomous agents will transform workflows across industries.
+23. Analyze the technical feasibility and business case for brain-computer interfaces in the next decade.
+24. Investigate the state of open-source AI models vs proprietary models. Compare capability, safety, and accessibility.
+25. Research how precision agriculture using AI is changing farming economics in developing countries.
+26. Analyze the cybersecurity implications of quantum computing: which encryption standards will break and when.
+27. Investigate the role of AI in personalized medicine. How close are we to truly individualized treatment plans?
+28. Research the state of autonomous drones in commercial applications: delivery, inspection, mapping.
+29. Analyze how AI is transforming the legal industry: contract analysis, case prediction, and regulatory compliance.
+30. Write a futures analysis on how AI agents will reshape the software development lifecycle by 2030.
+
+## ── NEED FINE-TUNE (30) ────────────────────────────────────────────
+1. Summarize the top 5 AI trends from the past month based on research papers and industry news.
+2. List the key features of the latest NVIDIA GPU architecture for AI workloads.
+3. Compare Python, Rust, and Julia for AI/ML development in a structured table.
+4. Explain the transformer architecture and its variants (BERT, GPT, T5) in simple terms.
+5. List 10 startups working on AI safety with their funding amounts and approaches.
+6. Summarize the key findings from the latest State of AI Report.
+7. Explain the difference between RAG, fine-tuning, and prompt engineering for LLM customization.
+8. List the most popular AI frameworks and their primary use cases.
+9. Compare cloud providers (AWS, GCP, Azure) for AI/ML workloads on features and pricing.
+10. Explain how federated learning works and list 3 real-world applications.
+11. Summarize the key points of the EU AI Act for a non-technical audience.
+12. List the top 10 most-cited AI research papers from the past year.
+13. Explain the concept of "AI alignment" and why it matters.
+14. Compare vector databases (Pinecone, Weaviate, Qdrant, Milvus) on features and performance.
+15. List the major AI conferences and their submission deadlines for this year.
+16. Explain how diffusion models work for image generation.
+17. Summarize the key differences between GPT-4, Claude, and Gemini.
+18. List emerging applications of AI in healthcare beyond diagnostics.
+19. Explain the concept of model distillation and its benefits.
+20. Compare containerization platforms for deploying AI models.
+21. List the top open-source LLMs and their parameter counts.
+22. Explain how reinforcement learning from human feedback (RLHF) works.
+23. Summarize the current state of AI regulation in the United States.
+24. List tools for monitoring AI model performance in production.
+25. Explain the concept of "AI agents" and how they differ from chatbots.
+26. Compare approaches to reducing LLM hallucinations.
+27. List the key metrics for evaluating LLM performance.
+28. Explain how multimodal AI models process different input types.
+29. Summarize recent advances in AI for code generation.
+30. List the main challenges in deploying AI at the edge.
+
+## ── KEEP ON SLM (30) ──────────────────────────────────────────────
+1. What is artificial intelligence?
+2. What does GPU stand for?
+3. What is machine learning?
+4. What is deep learning?
+5. What is an LLM?
+6. What does API stand for?
+7. What is Python used for?
+8. What is a neural network?
+9. What is the cloud?
+10. What is open source?
+11. What is a transformer model?
+12. What does NLP stand for?
+13. What is a chatbot?
+14. What is computer vision?
+15. What is a dataset?
+16. What does ML stand for?
+17. What is a model parameter?
+18. What is training data?
+19. What is inference?
+20. What is a prompt?
+21. What does AI stand for?
+22. What is a token in AI?
+23. What is fine-tuning?
+24. What is an embedding?
+25. What is a vector database?
+26. What is RAG?
+27. What is TensorFlow?
+28. What is PyTorch?
+29. What is a GPU cluster?
+30. What is model deployment?

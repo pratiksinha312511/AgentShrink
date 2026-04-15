@@ -1,0 +1,99 @@
+# LangGraph MCP Agent — Prompts (30-30-30)
+# Upstream: Sarvam AI (sarvam-m) via AgentShrink Gateway
+# Framework: LangChain ReAct + MCP | Adapter: langchain_adapter.py
+
+## ── KEEP ON LLM (30) ──────────────────────────────────────────────
+1. Analyze the codebase documentation and produce a comprehensive API reference guide with authentication, endpoints, error codes, and usage examples.
+2. Search the documentation for all security-related configurations and create a hardening checklist with implementation priority.
+3. Cross-reference the README, API docs, and changelog to identify features documented but not yet implemented.
+4. Analyze the GitHub issues and PRs to identify the most requested features and create a prioritized roadmap recommendation.
+5. Search the documentation for migration guides and create a step-by-step upgrade plan from v1 to v2.
+6. Analyze the test documentation and identify gaps in test coverage by comparing documented features vs tested features.
+7. Create a developer onboarding guide by synthesizing information from README, contributing guidelines, and architecture docs.
+8. Search for all environment variables across documentation and code, then create a unified configuration reference.
+9. Analyze the documentation for inconsistencies between code examples and actual API behavior.
+10. Create a troubleshooting guide by analyzing GitHub issues, FAQ docs, and error handling documentation.
+11. Search the docs for deployment instructions and create a production checklist covering security, performance, and monitoring.
+12. Analyze the architecture documentation and identify potential scalability bottlenecks with recommended solutions.
+13. Cross-reference API documentation with OpenAPI specs to find undocumented endpoints or parameters.
+14. Create a comparison matrix between this project and 3 competitors based on feature documentation analysis.
+15. Search for all webhook events documented and create an integration guide for event-driven architectures.
+16. Analyze the SDK documentation for all supported languages and identify feature parity gaps.
+17. Create a data model diagram by extracting entity relationships from the documentation.
+18. Search the docs for rate limiting policies and create a client-side implementation guide for handling limits.
+19. Analyze plugin/extension documentation and create a guide for building custom integrations.
+20. Cross-reference changelog with API documentation to build a version compatibility matrix.
+21. Search for authentication documentation and create a security best practices guide for API consumers.
+22. Analyze CI/CD documentation and create a deployment pipeline recommendation for production.
+23. Create error handling documentation by searching for all error codes, status codes, and exception types in the docs.
+24. Search for performance tuning documentation and create a comprehensive optimization guide.
+25. Analyze the documentation structure and provide UX improvement recommendations for developer experience.
+26. Create a searchable glossary by extracting technical terms from all documentation pages.
+27. Search for all code snippets in docs and verify they follow current best practices and coding standards.
+28. Analyze the documentation for accessibility of internationalization/localization features.
+29. Create a decision tree for choosing the right API endpoint based on use case analysis of the docs.
+30. Search for monitoring and observability documentation and create an SRE playbook for the platform.
+
+## ── NEED FINE-TUNE (30) ────────────────────────────────────────────
+1. Search the docs for how to install the project.
+2. Find the API authentication documentation.
+3. Search for the list of all API endpoints.
+4. Find the configuration file documentation.
+5. Search for environment variable requirements.
+6. Find the documentation about error handling.
+7. Search for the project's system requirements.
+8. Find the database setup documentation.
+9. Search for the API rate limiting information.
+10. Find the webhook documentation.
+11. Search for the logging configuration docs.
+12. Find the REST API versioning policy.
+13. Search for the deployment documentation.
+14. Find the testing documentation.
+15. Search for the contributing guidelines.
+16. Find the changelog for the latest version.
+17. Search for the license information.
+18. Find the documentation about caching.
+19. Search for the CLI command reference.
+20. Find the database migration docs.
+21. Search for the security policy documentation.
+22. Find the performance benchmarks.
+23. Search for the SDK installation guide.
+24. Find the FAQ section in the documentation.
+25. Search for pagination documentation.
+26. Find the CORS configuration docs.
+27. Search for the backup and recovery documentation.
+28. Find the monitoring setup guide.
+29. Search for the API status endpoint.
+30. Find the health check documentation.
+
+## ── KEEP ON SLM (30) ──────────────────────────────────────────────
+1. What is MCP?
+2. What does API stand for?
+3. What is documentation?
+4. What is a repository?
+5. What is a README file?
+6. What is an endpoint?
+7. What is authentication?
+8. What is a webhook?
+9. What is rate limiting?
+10. What is a changelog?
+11. What is a pull request?
+12. What is an issue on GitHub?
+13. What is REST?
+14. What is JSON?
+15. What is YAML?
+16. What is a configuration file?
+17. What is deployment?
+18. What is a database?
+19. What is a migration?
+20. What is version control?
+21. What is a code review?
+22. What is CI/CD?
+23. What is an SDK?
+24. What is a CLI?
+25. What is caching?
+26. What is CORS?
+27. What is a docker container?
+28. What is a log file?
+29. What is middleware?
+30. What is open source?

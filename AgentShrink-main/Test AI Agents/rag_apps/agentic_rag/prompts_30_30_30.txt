@@ -1,0 +1,99 @@
+# Agentic RAG — Prompts (30-30-30)
+# Upstream: Sarvam AI (sarvam-m) via AgentShrink Gateway
+# Framework: Agno + RAG | Adapter: agno_adapter.py
+
+## ── KEEP ON LLM (30) ──────────────────────────────────────────────
+1. Given the uploaded legal contract, identify all liability clauses, compare them with industry standards, and flag potential risks with recommended amendments.
+2. Analyze the research paper's methodology section. Critique the experimental design—are there confounding variables the authors didn't address?
+3. Cross-reference the financial report with the company's previous 3 quarterly filings. Identify trends in revenue, margins, and cash flow anomalies.
+4. Synthesize information from all uploaded documents to create a comprehensive competitive intelligence report with SWOT analysis.
+5. The technical specification mentions several API endpoints. Review all of them and identify security vulnerabilities based on OWASP Top 10.
+6. Analyze the employment agreement and compare it with local labor laws. Identify any clauses that may be unenforceable.
+7. Given the clinical trial data in the documents, evaluate the statistical significance of the results and identify potential biases.
+8. Cross-reference the patent filing with the prior art documents. Identify overlapping claims and novelty arguments.
+9. Analyze the uploaded codebase documentation and create a migration strategy from the described architecture to microservices.
+10. Synthesize the customer feedback reports from multiple quarters and identify emerging themes the product team should prioritize.
+11. Review the merger agreement documents and flag provisions that could trigger regulatory scrutiny or antitrust concerns.
+12. Analyze the uploaded financial model's assumptions. Stress-test the projections under 3 different economic scenarios.
+13. Given the technical whitepaper and the implementation guide, identify gaps between the theoretical design and practical implementation.
+14. Cross-reference the audit report findings with the company's remediation plan. Assess completeness and timeline feasibility.
+15. Analyze the uploaded dataset's documentation and recommend the most appropriate machine learning approach with feature engineering strategy.
+16. Review the policy document and draft an impact assessment for stakeholders across 5 different departments.
+17. Synthesize information from the uploaded research papers to create a literature review with gap analysis for a PhD thesis proposal.
+18. Analyze the supply chain documentation and identify single points of failure with risk mitigation recommendations.
+19. Given the uploaded regulatory filing, translate the compliance requirements into actionable engineering tasks with effort estimates.
+20. Cross-reference the product requirements document with the test plan. Identify untested requirements and propose test strategies.
+21. Analyze the uploaded environmental impact assessment and evaluate the methodology against ISO 14001 standards.
+22. Review the uploaded API documentation and design a comprehensive integration architecture for a third-party system.
+23. Synthesize the meeting minutes from the past month and identify recurring decisions, action items, and unresolved issues.
+24. Analyze the uploaded curriculum documents and propose improvements based on current industry skill requirements.
+25. Given the uploaded incident reports, perform root cause analysis and create a prevention framework.
+26. Review the uploaded database schema documentation and propose normalization improvements with migration scripts.
+27. Analyze the marketing strategy document and compare effectiveness metrics with industry benchmarks.
+28. Cross-reference the uploaded insurance policy with the claim documents and assess coverage applicability.
+29. Synthesize the uploaded user research reports into personas with journey maps and pain point prioritization.
+30. Analyze the uploaded system architecture document and create a disaster recovery plan with RTO/RPO targets.
+
+## ── NEED FINE-TUNE (30) ────────────────────────────────────────────
+1. Summarize the main points of this PDF document.
+2. Find all dates and deadlines mentioned in the uploaded contract.
+3. Extract the key financial figures from the uploaded report.
+4. List all people mentioned in the document and their roles.
+5. Find the section about data privacy in the uploaded document.
+6. Summarize the conclusions of the uploaded research paper.
+7. What are the main recommendations in this document?
+8. Extract all technical requirements mentioned in the spec.
+9. Find references to previous versions in the document.
+10. Summarize the executive summary in 3 bullet points.
+11. List all acronyms used in the document and their definitions.
+12. Find the risk factors section and summarize it.
+13. Extract the methodology described in the research paper.
+14. List all deliverables mentioned in the project document.
+15. Find the pricing information in the uploaded proposal.
+16. Summarize the changes between v1 and v2 of this document.
+17. Extract all URLs and references from the document.
+18. Find the section about system requirements.
+19. List all charts and figures with their captions.
+20. Summarize the introduction section.
+21. Find all email addresses mentioned in the document.
+22. Extract the timeline information from the project plan.
+23. List the main headings and subheadings for a table of contents.
+24. Find the glossary or definitions section.
+25. Summarize the abstract of the uploaded paper.
+26. Extract all numerical data and present it in table format.
+27. Find the section about limitations and future work.
+28. List all software tools mentioned in the document.
+29. Summarize the legal terms in plain language.
+30. Find the appendix information.
+
+## ── KEEP ON SLM (30) ──────────────────────────────────────────────
+1. What is RAG?
+2. What does PDF stand for?
+3. How many pages is this document?
+4. What is the title of the document?
+5. Who is the author?
+6. When was this document created?
+7. What format is this file?
+8. What is the document about?
+9. Is this document in English?
+10. What is a summary?
+11. What is a keyword?
+12. What is a citation?
+13. What is an abstract?
+14. What is a reference?
+15. What is a bibliography?
+16. What is an appendix?
+17. What is a table of contents?
+18. What is a paragraph?
+19. What is a heading?
+20. What is a footnote?
+21. What is a glossary?
+22. What is a thesis statement?
+23. What is plagiarism?
+24. What is a document?
+25. What is text extraction?
+26. What is an index?
+27. What is a metadata?
+28. What is OCR?
+29. What is a search query?
+30. What is a knowledge base?

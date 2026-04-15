@@ -1,0 +1,50 @@
+﻿My order ORD-10021 arrived completely smashed. I want a full refund immediately.
+Where is my package? Order ORD-10045 was supposed to arrive 3 weeks ago.
+I received the wrong item in order ORD-10078. Got a blue shirt instead of red.
+My order ORD-10034 was damaged when it arrived. The box was crushed.
+I changed my mind about ORD-10089 purchased 5 days ago. Can I return it?
+My package ORD-10045 shows delivered but I never received it.
+The laptop from ORD-10078 stopped working after 2 days. Screen went black.
+ORD-10091 arrived but it is completely different from what was shown on website.
+Classify this: I want a refund for order ORD-20001, the item was broken.
+What type of complaint is this: my package ORD-20002 never arrived?
+Categorize: I received wrong size for ORD-20003, want to return.
+Is this refund or shipping: order ORD-20004 delayed 15 days?
+Complaint type for: ORD-20005 product stopped working day one.
+Classify: ORD-20006 headphones broke immediately, want refund.
+What category: ORD-20007 I got completely different product.
+Extract order ID from: Hi my order ORD-10021 has not arrived yet.
+Find order number in: I need help with order number 45823 placed last week.
+What is the order reference in: my purchase ORD-9982 is missing.
+Pull order ID from: tracking for ORD10045 shows stuck in transit.
+Get order number: can you check status of my order 77291?
+Find reference: issue with order ref SO-2024-8812 not delivered.
+Extract: my booking ID is BK-5541 and I need a refund for it.
+Order ID extraction: problem with ORD-00231 received yesterday.
+Get the number: hi regarding order 19283 placed on your website.
+Extract from text: order confirmation was RCT-44129 from last Monday.
+Apply refund policy: customer received damaged item shipping, order 3 days ago.
+Policy decision: customer wants refund digital download purchased yesterday.
+Does this qualify 7-day policy: customer changed mind 5 days after purchase?
+Policy check: item marked final sale customer requesting return verdict?
+Evaluate eligibility: wrong item delivered customer reported within 24 hours.
+Should we approve: item stopped working after 2 days normal use?
+Policy rule: delayed delivery beyond 14-day SLA customer demands compensation.
+Assess return: gift purchase recipient does not want it 3 weeks since purchase.
+Evaluate: package lost in transit carrier confirmed lost shipment approve refund?
+Policy decision: customer requesting exchange for size 10 days since purchase.
+Write warm professional reply refund approved for order ORD-10021 under 100 words.
+Draft empathetic response customer received wrong item apologize explain exchange.
+Compose professional reply explaining return request denied 7-day window passed.
+Write response customer asking about delayed package be reassuring next steps.
+Draft sympathetic message customer order lost in transit include timeline.
+Write professional reply acknowledging damaged item approving immediate replacement.
+Compose response upset customer waiting 3 weeks for order ORD-20026.
+Draft apology resolution email customer received defective product ORD-20046.
+Write clear friendly message explaining refund process steps to customer.
+Format as JSON order_id ORD-10021 complaint_type refund resolution approved reply drafted escalate false.
+Convert to JSON order ORD-888 type shipping verdict needs_review message looking escalate true.
+Output valid JSON only order ORD-445 category product status denied response unfortunately escalate false.
+Structure as JSON customer order ORD-2291 complaint refund resolution approved no escalation.
+JSON output required fields order_id complaint_type resolution reply escalate data ORD-10045 shipping needs_review.
+Create JSON structure support case ORD-77821 complaint product defect approved replacement reply drafted.

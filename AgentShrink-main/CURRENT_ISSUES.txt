@@ -1,0 +1,153 @@
+AgentShrink Current Issues
+==========================
+
+Issue 1: Hardcoded OpenAI usage in analysis
+Status: Fixed
+Notes:
+- Cluster labeling was hardcoded to OpenAI.
+- Judge scoring was hardcoded to OpenAI.
+- Both now use the configured analysis provider (currently NVIDIA).
+
+Issue 2: Evaluator counted only 1 enabled model
+Status: Fixed
+Notes:
+- Enabled models in models_catalog.json were correct.
+- Ollama availability detection was reading the response shape incorrectly.
+- Evaluator now recognizes installed Ollama models correctly.
+
+Issue 3: Ollama evaluator response parsing bug
+Status: Fixed
+Symptoms:
+- "Ollama generation failed for gemma3:1b: 'dict' object has no attribute 'response'"
+Notes:
+- The evaluator assumes one Ollama Python client response shape.
+- In the current environment, Ollama generate responses can come back as dict-like payloads.
+- The evaluator now supports both object-style and dict-style response parsing.
+
+Issue 4: Evaluation strategy is too expensive
+Status: In Progress
+Symptoms:
+- Full evaluation runs many sampled prompts per cluster across all enabled models.
+- Runtime can become slow as more models are added.
+Notes:
+- Current evaluation is prompt-sample based, not centroid-only.
+- We likely want representative sampling, staged evaluation, and caching.
+- Promising approach:
+  - sample a few prompts closest to the cluster centroid (canonical cases)
+  - sample a few prompts near the cluster edges/outliers (harder edge cases)
+  - evaluate on that mixed representative set instead of broader random sampling
+- Implemented:
+  - evaluator now uses representative sampling with centroid-near and edge-case prompts
+- Still open:
+  - staged evaluation (quick screen before full pass)
+  - caching/reuse of previous model-cluster evaluations
+
+Issue 5: Frontend analysis still defaults to heuristic mode
+Status: Fixed
+Symptoms:
+- Dashboard "Run Analysis" path still uses skip_eval/local-safe settings.
+- UI reports can remain heuristic unless full CLI analysis is run.
+Notes:
+- Overview "Run Analysis" now triggers full evaluator mode.
+- It no longer defaults to skip-eval / local-only heuristic analysis.
+
+Issue 6: Disabled models require report re-apply to fully affect routing
+Status: Fixed
+Symptoms:
+- Routing config is generated from evaluated/applied report state.
+- Disabling a model later does not automatically rewrite existing routing_config.json.
+Notes:
+- Runtime-side disabled-model validation now added in centroid_index.py.
+- route() checks model catalog for disabled status before routing to local SLM.
+- If model is disabled, falls back to API with reason explaining the model was disabled.
+
+Issue 7: Incumbent baseline bias should be made explicit in reports
+Status: Fixed
+Symptoms:
+- The incumbent strong model can appear as the "best replacement" in the report.
+- This is misleading when the goal is to replace the incumbent only if another model meets its quality bar.
+Notes:
+- Reports now track the incumbent baseline separately.
+- "Replace now" is only assigned when a non-incumbent model clears the quality threshold.
+- The report UI now shows the incumbent baseline explicitly alongside the recommended replacement.
+
+Issue 8: Cluster naming and incumbent baseline display are unstable/misleading across targeted reruns
+Status: Fixed
+Symptoms:
+- Cluster display names can change after rerunning analysis or targeted evaluation, even when the user expects cluster_id to remain the stable handle.
+- Targeted reevaluation should update scores for an existing cluster_id without regenerating or changing that cluster's stored display name.
+- The report can show the incumbent baseline model with a 0% quality score when that incumbent was not itself evaluated as a candidate.
+Notes:
+- cluster_id should be treated as the stable internal identifier within a clustering snapshot.
+- cluster_name should be persistent metadata associated with that cluster_id and reused from cluster_info.json during targeted reevaluation.
+- Full reclustering may produce a new clustering snapshot, but targeted report refreshes should not relabel existing cluster IDs.
+- The incumbent baseline card should show N/A or another explicit non-score state when the incumbent model is reference-only and was not evaluated.
+
+Issue 9: Targeted report generation is unnecessarily coupled to reclustering
+Status: Fixed
+Symptoms:
+- Generating a report for a single existing cluster still runs the full analyse pipeline, including curation and clustering.
+- Users cannot reevaluate/report one cluster from an existing clustering snapshot without recomputing clusters first.
+- This adds avoidable runtime and can also change cluster labels/metadata while the user only wanted refreshed evaluation for one cluster.
+Notes:
+- Clustering and evaluation/reporting are now separable stages.
+- When --cluster-id is specified and an existing snapshot exists, the analyse command loads the snapshot from disk instead of re-running curation and clustering.
+- Added _can_load_existing_snapshot() and _load_existing_snapshot() helpers in cli.py.
+- cluster_id only needs reclustering when creating a new clustering snapshot.
+
+Issue 10: setup.py missing core dependencies
+Status: Fixed
+Symptoms:
+- pip install -e . does not install pandas, sentence-transformers, hdbscan, umap-learn, ollama.
+- Running tests or analysis fails with ModuleNotFoundError after fresh install.
+Notes:
+- Added pandas, sentence-transformers, hdbscan, umap-learn, ollama to setup.py install_requires.
+
+Issue 11: Windows Unicode encoding crash in test output
+Status: Fixed
+Symptoms:
+- All test files using Rich Console crash on Windows cp1252 terminals with UnicodeEncodeError.
+- Characters like checkmark and cross-mark cannot be encoded by Windows legacy console.
+Notes:
+- Fixed by using Console(force_terminal=True) and wrapping stdout/stderr with UTF-8 encoding on Windows.
+- Applied to test_phase1_logger.py, test_phase2_clustering.py, test_phase3_evaluator.py, test_phase4_router.py.
+
+Issue 12: test_phase4_router.py RoutingDecision missing provider field
+Status: Fixed
+Symptoms:
+- Tests 6, 7, 8 in test_phase4_router.py fail with: RoutingDecision.__init__() missing 1 required positional argument: 'provider'
+Notes:
+- RoutingDecision was updated to require a 'provider' field but tests were not updated.
+- Added provider="ollama" to all RoutingDecision instantiations in tests.
+
+Issue 13: Gateway error messages leak internal exception details
+Status: Fixed
+Symptoms:
+- When local Ollama execution fails, the full Python exception string is included in route_reason metadata.
+- This can expose internal file paths, stack traces, and configuration details to API consumers.
+Notes:
+- Sanitized error messages to generic "local execution failed" without exception details in route_reason.
+
+Issue 14: .env has garbage values for pricing fields
+Status: Fixed
+Symptoms:
+- AGENTSHRINK_PRICE_OUT_PER_1K was set to "-272.15 deg C" (absolute zero in Celsius).
+- AGENTSHRINK_PRICE_IN_PER_1K was empty.
+Notes:
+- Set to reasonable default pricing values.
+
+Issue 15: Security vulnerabilities identified
+Status: Fixed (v0.6 hardening)
+Symptoms:
+- Gateway auth is optional - if expected_api_key is empty, all requests pass through.
+- Dashboard backend auto-creates authenticated sessions in single-user mode, bypassing auth.
+- CORS configured with allow_methods=["*"] and allow_headers=["*"].
+- Magic link tokens have no time-based expiration.
+- Backend exception details exposed in HTTP 500 responses.
+- Project token preview exposes first 14 characters.
+Notes:
+- CORS hardened: explicit method and header allowlists (GET, POST, PUT, DELETE, OPTIONS; Authorization, Content-Type, X-AgentShrink-Node, X-AgentShrink-Run-Id).
+- Magic link tokens now expire after 30 minutes (MAGIC_LINK_EXPIRY_SECONDS in app_setup.py).
+- Backend error responses sanitized: gateway test and exception handlers no longer leak Python exception details.
+- Gateway error messages sanitized: route_reason no longer includes internal exception strings.
+- Remaining items (optional gateway auth, single-user session bypass, token preview) are acceptable for local-dev-first product and tracked for v1.0 hosted deployment.

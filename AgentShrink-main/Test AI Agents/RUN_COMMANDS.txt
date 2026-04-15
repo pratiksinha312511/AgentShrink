@@ -1,0 +1,136 @@
+# AgentShrink + Sarvam AI — Test Commands (Run One by One)
+# ===========================================================
+#
+# YOU NEED 2 TERMINALS:
+#
+#   TERMINAL 1 — Gateway (keep running, don't close)
+#     cd D:\CampusLearning\AgentShrink-main\AgentShrink-main
+#     $env:AGENTSHRINK_UPSTREAM_NO_SSL_VERIFY="1"
+#     python -m agentshrink.cli gateway --upstream-provider sarvam --host 127.0.0.1 --port 8100
+#
+#   TERMINAL 2 — Run test commands below one by one
+#     cd D:\CampusLearning\AgentShrink-main\AgentShrink-main
+#     (paste each command below)
+#
+# NOTE: "stack up" is NOT needed separately — it starts its own gateway.
+#       Use EITHER "stack up" OR the gateway command above, not both.
+#
+# ===========================================================
+
+# ── STEP 0: (TERMINAL 1) Start the Gateway and leave it running ───
+$env:AGENTSHRINK_UPSTREAM_NO_SSL_VERIFY="1"
+python -m agentshrink.cli gateway --upstream-provider sarvam --host 127.0.0.1 --port 8100
+
+# ── STEP 1: (TERMINAL 2) Quick gateway test — no extra packages needed ─
+python "Test AI Agents\test_gateway_sarvam.py"
+
+# ── STEP 2: (TERMINAL 2) Full test with all 9 prompts ─────────────
+python "Test AI Agents\test_gateway_sarvam.py" --all
+
+# ── STEP 3: (TERMINAL 2) Test by category ─────────────────────────
+python "Test AI Agents\test_gateway_sarvam.py" --category llm
+python "Test AI Agents\test_gateway_sarvam.py" --category finetune
+python "Test AI Agents\test_gateway_sarvam.py" --category slm
+
+# ── STEP 4: Validate all 1170 prompt files ─────────────────────────
+python "Test AI Agents\run_all_tests.py" --prompts-only
+
+# ===========================================================
+# FRAMEWORK-SPECIFIC AGENTS (need extra pip installs)
+# ===========================================================
+# The agents below need their framework packages installed.
+# Install only the one you want to test:
+#
+#   pip install agno           → for Agno agents (Tests 1, 7, 11, 12, 13)
+#   pip install crewai         → for CrewAI agent (Test 3)
+#   pip install pydantic-ai    → for PydanticAI agent (Test 4)
+#   pip install dspy           → for DSPy agent (Test 5)
+#   pip install llama-index llama-index-llms-openai-like → for LlamaIndex (Test 6)
+#   pip install browser-use    → for Browser agent (Test 8)
+#   pip install "agents"       → for OpenAI Agents SDK (Test 2)
+# ===========================================================
+
+# ── STARTER AGENTS ─────────────────────────────────────────────────
+
+# Test 1: Agno HackerNews Agent (pip install agno)
+python "Test AI Agents\starter_agents\agno_hackernews\agent.py"
+
+# Test 2: OpenAI SDK Email/Haiku Agent (OpenAI Agents SDK)
+python "Test AI Agents\starter_agents\openai_sdk_email\agent.py"
+
+# Test 3: CrewAI Research Agent (CrewAI framework)
+python "Test AI Agents\starter_agents\crewai_research\agent.py"
+
+# Test 4: PydanticAI Weather Agent (PydanticAI framework)
+python "Test AI Agents\starter_agents\pydantic_weather\agent.py"
+
+# Test 5: DSPy Math/Wikipedia Agent (DSPy framework)
+python "Test AI Agents\starter_agents\dspy_starter\agent.py"
+
+# Test 6: LlamaIndex Task Manager (LlamaIndex framework)
+python "Test AI Agents\starter_agents\llamaindex_tasks\agent.py"
+
+# ── SIMPLE AGENTS ──────────────────────────────────────────────────
+
+# Test 7: Finance Agent (Agno + YFinance)
+python "Test AI Agents\simple_agents\finance_agent\agent.py"
+
+# Test 8: Browser Automation Agent (browser-use + ChatOpenAI)
+python "Test AI Agents\simple_agents\browser_agent\agent.py"
+
+# Test 9: Talk-to-DB (LangChain + SQL) — no agent.py, use adapter directly
+python "Test AI Agents\adapters\langchain_adapter.py"
+
+# ── MCP AGENTS ─────────────────────────────────────────────────────
+
+# Test 10: LangGraph MCP Agent (LangChain ReAct + MCP)
+python "Test AI Agents\mcp_agents\langgraph_mcp\agent.py"
+
+# ── MEMORY AGENTS ──────────────────────────────────────────────────
+
+# Test 11: Agno Memory Agent (Agno + persistent memory)
+python "Test AI Agents\memory_agents\agno_memory\agent.py"
+
+# ── RAG APPS ───────────────────────────────────────────────────────
+
+# Test 12: Agentic RAG (Agno + document retrieval)
+python "Test AI Agents\rag_apps\agentic_rag\agent.py"
+
+# ── ADVANCED AGENTS ────────────────────────────────────────────────
+
+# Test 13: Deep Researcher (Agno + ScrapeGraph)
+python "Test AI Agents\advanced_agents\deep_researcher\agent.py"
+
+# ── ADAPTER QUICK TESTS (framework-level validation) ───────────────
+
+# Test adapter: Agno
+python "Test AI Agents\adapters\agno_adapter.py"
+
+# Test adapter: OpenAI SDK
+python "Test AI Agents\adapters\openai_sdk_adapter.py"
+
+# Test adapter: CrewAI
+python "Test AI Agents\adapters\crewai_adapter.py"
+
+# Test adapter: PydanticAI
+python "Test AI Agents\adapters\pydantic_adapter.py"
+
+# Test adapter: LangChain
+python "Test AI Agents\adapters\langchain_adapter.py"
+
+# Test adapter: LlamaIndex
+python "Test AI Agents\adapters\llamaindex_adapter.py"
+
+# Test adapter: DSPy
+python "Test AI Agents\adapters\dspy_adapter.py"
+
+# Test adapter: Google ADK
+python "Test AI Agents\adapters\google_adk_adapter.py"
+
+# Test adapter: AWS Strands
+python "Test AI Agents\adapters\aws_strands_adapter.py"
+
+# ── VALIDATE PROMPT FILES ──────────────────────────────────────────
+
+# Check all 13 agents have proper 30-30-30 prompt splits (1170 total prompts)
+python "Test AI Agents\run_all_tests.py" --prompts-only

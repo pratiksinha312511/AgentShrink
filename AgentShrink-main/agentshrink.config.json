@@ -1,0 +1,6 @@
+{
+  "eval_samples_per_cluster": 5,
+  "judge_model_id": "439e51b7dcf8",
+  "remote_min_interval_s": 0.75,
+  "judge_min_interval_s": 1.0
+}

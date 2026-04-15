@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentshrink"
+version = "0.6.0"
+description = "Automatically convert LLM agents to use cheaper local SLMs — implements arXiv:2506.02153"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "AgentShrink Contributors"},
+]
+keywords = ["llm", "slm", "agent", "routing", "fine-tuning", "langchain", "ollama"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "langchain>=0.3.7",
+    "langchain-core>=0.3.19",
+    "langchain-openai>=0.2.8",
+    "langchain-google-genai>=2.0.9",
+    "langgraph>=0.2.45",
+    "click>=8.1.7",
+    "python-dotenv>=1.0.1",
+    "rich>=13.8.1",
+    "fastapi>=0.115.5",
+    "uvicorn>=0.32.0",
+    "openai>=1.54.4",
+    "huggingface_hub>=0.26.2",
+    "pandas>=2.0.0",
+    "sentence-transformers>=2.2.0",
+    "hdbscan>=0.8.30",
+    "umap-learn>=0.5.0",
+    "ollama>=0.3.0",
+]
+
+[project.optional-dependencies]
+finetune = [
+    "torch>=2.0.0",
+    "datasets>=2.14.0",
+    "transformers>=4.35.0",
+    "peft>=0.6.0",
+    "accelerate>=0.24.0",
+]
+modal = [
+    "modal>=1.0.0",
+]
+dev = [
+    "pytest>=7.0",
+    "requests>=2.31.0",
+]
+
+[project.scripts]
+agentshrink = "agentshrink.cli:cli"
+
+[project.urls]
+Homepage = "https://github.com/agentshrink/agentshrink"
+Documentation = "https://github.com/agentshrink/agentshrink/blob/main/docs/USER_QUICKSTART.md"
+Repository = "https://github.com/agentshrink/agentshrink"
+Issues = "https://github.com/agentshrink/agentshrink/issues"
+
+[tool.setuptools.packages.find]
+include = ["agentshrink*"]
+
+[tool.setuptools.package-data]
+agentshrink = ["py.typed"]
