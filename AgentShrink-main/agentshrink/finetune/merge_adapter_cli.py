@@ -3,6 +3,45 @@ from __future__ import annotations
 import argparse
 import os
 import pathlib
+import ssl
+import sys
+
+# Fix TRL encoding bug on Windows
+if sys.platform == "win32":
+    _orig_read_text = pathlib.Path.read_text
+
+    def _read_text_utf8(self, *args, encoding=None, errors=None, **kwargs):
+        return _orig_read_text(self, *args, encoding=encoding or "utf-8", errors=errors, **kwargs)
+
+    pathlib.Path.read_text = _read_text_utf8  # type: ignore[assignment]
+
+# Fix SSL for corporate proxies — httpx ignores HF_HUB_DISABLE_SSL_VERIFY
+if os.environ.get("HF_HUB_DISABLE_SSL_VERIFY") == "1":
+    os.environ.setdefault("CURL_CA_BUNDLE", "")
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", "")
+    _orig_create_default_context = ssl.create_default_context
+
+    def _unverified_context(*args, **kwargs):
+        ctx = _orig_create_default_context(*args, **kwargs)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+
+    ssl.create_default_context = _unverified_context  # type: ignore[assignment]
+
+    # Also patch httpx client to disable SSL verification
+    try:
+        import httpx as _httpx
+
+        _orig_httpx_client_init = _httpx.Client.__init__
+
+        def _patched_client_init(self, *a, **kw):
+            kw["verify"] = False
+            return _orig_httpx_client_init(self, *a, **kw)
+
+        _httpx.Client.__init__ = _patched_client_init  # type: ignore[assignment]
+    except Exception:
+        pass
 
 
 def main() -> int:
@@ -43,10 +82,13 @@ def main() -> int:
         str(adapter_dir),
         low_cpu_mem_usage=True,
         torch_dtype="auto",
+        trust_remote_code=True,
     )
     print("Merging adapter into base model", flush=True)
     merged = model.merge_and_unload()
-    tokenizer = AutoTokenizer.from_pretrained(args.base_model)
+    # Load tokenizer from adapter dir (saved during training) to avoid
+    # needing HF auth for gated models like Llama.
+    tokenizer = AutoTokenizer.from_pretrained(str(adapter_dir), trust_remote_code=False)
     print(f"Saving merged model to {output_dir}", flush=True)
     merged.save_pretrained(str(output_dir), safe_serialization=True)
     tokenizer.save_pretrained(str(output_dir))

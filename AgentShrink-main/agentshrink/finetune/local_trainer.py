@@ -1,8 +1,72 @@
 from __future__ import annotations
 
 import os
+import ssl
+import sys
 from pathlib import Path
 from typing import Any, Callable
+
+# Fix TRL encoding bug on Windows — trl reads deepseekv3.jinja via
+# Path.read_text() without encoding, which defaults to cp1252 on Windows.
+# Monkey-patch so the default is utf-8 instead.
+if sys.platform == "win32":
+    _orig_read_text = Path.read_text
+
+    def _read_text_utf8(self, *args, encoding=None, errors=None, **kwargs):
+        return _orig_read_text(self, *args, encoding=encoding or "utf-8", errors=errors, **kwargs)
+
+    Path.read_text = _read_text_utf8  # type: ignore[assignment]
+
+# Fix SSL for corporate proxies — httpx (used by huggingface_hub >=1.x) ignores
+# HF_HUB_DISABLE_SSL_VERIFY.  Monkey-patch ssl so it creates unverified contexts.
+if os.environ.get("HF_HUB_DISABLE_SSL_VERIFY") == "1":
+    os.environ.setdefault("CURL_CA_BUNDLE", "")
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", "")
+    _orig_create_default_context = ssl.create_default_context
+
+    def _unverified_context(*args, **kwargs):
+        ctx = _orig_create_default_context(*args, **kwargs)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+
+    ssl.create_default_context = _unverified_context  # type: ignore[assignment]
+
+    # Also patch httpx client to disable SSL verification
+    try:
+        import httpx as _httpx
+
+        _orig_httpx_client_init = _httpx.Client.__init__
+
+        def _patched_client_init(self, *a, **kw):
+            kw["verify"] = False
+            return _orig_httpx_client_init(self, *a, **kw)
+
+        _httpx.Client.__init__ = _patched_client_init  # type: ignore[assignment]
+    except Exception:
+        pass
+
+
+# All linear projection layers — best practice per Unsloth / Modal examples.
+# Targeting all layers gives best quality; cost is negligible with LoRA.
+LORA_TARGET_MODULES = [
+    "q_proj", "k_proj", "v_proj", "o_proj",
+    "gate_proj", "up_proj", "down_proj",
+]
+
+
+def _format_training_rows_chatml(training_rows: list[dict[str, str]]) -> list[dict]:
+    """Convert prompt/completion rows to conversation dicts
+    suitable for ``tokenizer.apply_chat_template``."""
+    formatted = []
+    for row in training_rows:
+        formatted.append({
+            "conversations": [
+                {"role": "user", "content": row["prompt"]},
+                {"role": "assistant", "content": row["completion"]},
+            ]
+        })
+    return formatted
 
 
 def run_local_training(
@@ -22,16 +86,14 @@ def run_local_training(
         from transformers import (
             AutoModelForCausalLM,
             AutoTokenizer,
-            DataCollatorForLanguageModeling,
-            Trainer,
             TrainerCallback,
-            TrainingArguments,
         )
+        from trl import SFTConfig, SFTTrainer
     except Exception as exc:  # pragma: no cover - depends on optional local deps
         raise RuntimeError(
-            "Local fine-tuning dependencies are missing. Install them with "
-            "`venv\\Scripts\\python.exe -m pip install -r dashboard\\backend\\requirements-finetune.txt`, "
-            "then restart the AgentShrink backend/stack. "
+            "Local fine-tuning dependencies are missing. Install them with:\n"
+            "  pip install torch datasets peft transformers trl accelerate bitsandbytes\n"
+            "Then restart the AgentShrink backend/stack.\n"
             f"Import detail: {type(exc).__name__}: {exc}"
         ) from exc
 
@@ -43,9 +105,9 @@ def run_local_training(
     base_model = config["base_model"]
     deploy_base_model = config["deploy_base_model"]
     epochs = int(config.get("epochs", 2))
-    batch_size = int(config.get("batch_size", 1))
+    batch_size = int(config.get("batch_size", 2))
     lr = float(config.get("learning_rate", 2e-4))
-    grad_accum = int(config.get("gradient_accumulation_steps", 8))
+    grad_accum = int(config.get("gradient_accumulation_steps", 4))
     lora_r = int(config.get("lora_r", 16))
     max_seq_length = int(config.get("max_seq_length", 512))
 
@@ -53,18 +115,9 @@ def run_local_training(
         on_status("Preparing local fine-tune dataset", 15)
     if on_log:
         on_log(
-            "Starting local LoRA training. This uses local compute and can be slow on CPU-only machines."
+            "Starting local LoRA + SFT training with trl.SFTTrainer and chat template formatting."
         )
-        on_log(f"Preparing {len(training_rows)} training rows for local SFT.")
-
-    dataset = Dataset.from_dict(
-        {
-            "text": [
-                f"### Input:\n{row['prompt']}\n\n### Response:\n{row['completion']}"
-                for row in training_rows
-            ]
-        }
-    )
+        on_log(f"Preparing {len(training_rows)} training rows for supervised fine-tuning.")
 
     if should_stop and should_stop():
         raise RuntimeError("Training stopped by user.")
@@ -74,15 +127,11 @@ def run_local_training(
         on_log(f"Detected training device: {device}")
         if device != "cuda":
             on_log(
-                "No CUDA GPU detected. Local training will still run, but Llama 3.2 3B may be very slow and memory-heavy."
+                "WARNING: No CUDA GPU detected. Training will run on CPU — this will be very slow. "
+                "Consider using the Modal.com backend for cloud GPU training instead."
             )
 
     token = (hf_token or config.get("hf_token") or os.environ.get("HF_TOKEN") or "").strip() or None
-
-    # Respect SSL bypass for corporate proxies
-    if os.environ.get("HF_HUB_DISABLE_SSL_VERIFY") == "1":
-        os.environ.setdefault("CURL_CA_BUNDLE", "")
-        os.environ.setdefault("REQUESTS_CA_BUNDLE", "")
 
     if on_status:
         on_status("Loading tokenizer", 22)
@@ -92,73 +141,112 @@ def run_local_training(
     try:
         tokenizer = AutoTokenizer.from_pretrained(base_model, token=token, trust_remote_code=True)
     except Exception as tok_err:
-        err_msg = str(tok_err)
-        if "gated" in err_msg.lower() or "access" in err_msg.lower() or "config.json" in err_msg.lower():
+        err_msg = str(tok_err).lower()
+        if "gated" in err_msg or "access" in err_msg or "403" in err_msg or "config.json" in err_msg:
             raise RuntimeError(
                 f"Cannot download model '{base_model}'. This may be a gated model requiring "
                 f"HuggingFace access approval. Try a non-gated model like 'Qwen/Qwen2.5-1.5B-Instruct' "
-                f"or 'HuggingFaceTB/SmolLM2-1.7B-Instruct' instead. Detail: {err_msg}"
+                f"or 'HuggingFaceTB/SmolLM2-1.7B-Instruct' instead.\nDetail: {tok_err}"
+            ) from tok_err
+        if "ssl" in err_msg or "certificate" in err_msg:
+            raise RuntimeError(
+                f"SSL error downloading model '{base_model}'. If you are behind a corporate proxy, "
+                f"set HF_HUB_DISABLE_SSL_VERIFY=1 in your .env file.\nDetail: {tok_err}"
             ) from tok_err
         raise
+
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+
+    # --- Build dataset using chat template ---
+    if on_status:
+        on_status("Formatting dataset with chat template", 26)
+
+    conversations = _format_training_rows_chatml(training_rows)
+
+    def _apply_chat_template(example: dict) -> dict:
+        text = tokenizer.apply_chat_template(
+            example["conversations"],
+            tokenize=False,
+            add_generation_prompt=False,
+        )
+        return {"text": text}
+
+    dataset = Dataset.from_list(conversations)
+    dataset = dataset.map(_apply_chat_template, remove_columns=["conversations"])
+
+    if on_log:
+        sample_text = dataset[0]["text"][:200] if len(dataset) > 0 else "(empty)"
+        on_log(f"Chat template applied. Sample: {sample_text}...")
+
+    if should_stop and should_stop():
+        raise RuntimeError("Training stopped by user.")
 
     if on_status:
         on_status("Loading base model", 30)
     if on_log:
         on_log(f"Loading base model weights for {base_model}")
+
+    # Determine precision — prefer bf16 when available
+    use_bf16 = device == "cuda" and torch.cuda.is_bf16_supported()
+    use_fp16 = device == "cuda" and not use_bf16
+    model_dtype = torch.bfloat16 if use_bf16 else (torch.float16 if device == "cuda" else torch.float32)
+    use_grad_ckpt = device == "cuda"
+    optim_name = "adamw_8bit" if device == "cuda" else "adamw_torch"
+
     try:
         model = AutoModelForCausalLM.from_pretrained(
             base_model,
             token=token,
             low_cpu_mem_usage=True,
-            torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+            torch_dtype=model_dtype,
             trust_remote_code=True,
         )
     except Exception as model_err:
-        err_msg = str(model_err)
-        if "gated" in err_msg.lower() or "access" in err_msg.lower() or "config.json" in err_msg.lower():
+        err_msg = str(model_err).lower()
+        if "gated" in err_msg or "access" in err_msg or "403" in err_msg or "config.json" in err_msg:
             raise RuntimeError(
                 f"Cannot download model '{base_model}'. Try a non-gated model like "
-                f"'Qwen/Qwen2.5-1.5B-Instruct' or 'HuggingFaceTB/SmolLM2-1.7B-Instruct'. "
-                f"Detail: {err_msg}"
+                f"'Qwen/Qwen2.5-1.5B-Instruct' or 'HuggingFaceTB/SmolLM2-1.7B-Instruct'.\n"
+                f"Detail: {model_err}"
+            ) from model_err
+        if "ssl" in err_msg or "certificate" in err_msg:
+            raise RuntimeError(
+                f"SSL error downloading model '{base_model}'. If you are behind a corporate proxy, "
+                f"set HF_HUB_DISABLE_SSL_VERIFY=1 in your .env file.\nDetail: {model_err}"
             ) from model_err
         raise
+
     if device == "cuda":
         model = model.to("cuda")
 
-    target_modules = _infer_target_modules(base_model)
+    # Enable gradient checkpointing to reduce VRAM usage (~40% reduction) — CUDA only
+    if use_grad_ckpt:
+        model.gradient_checkpointing_enable()
+        if on_log:
+            on_log("Gradient checkpointing enabled (reduces VRAM ~40%)")
+
     if on_status:
         on_status("Applying LoRA adapters", 38)
     if on_log:
-        on_log(f"Applying LoRA to target modules: {', '.join(target_modules)}")
+        on_log(f"Applying LoRA to ALL linear layers: {', '.join(LORA_TARGET_MODULES)}")
+
     model = get_peft_model(
         model,
         LoraConfig(
             r=lora_r,
             lora_alpha=lora_r * 2,
-            target_modules=target_modules,
+            target_modules=LORA_TARGET_MODULES,
             lora_dropout=0.05,
             bias="none",
             task_type=TaskType.CAUSAL_LM,
         ),
     )
 
-    def tokenize(batch: dict[str, list[str]]) -> dict[str, Any]:
-        encoded = tokenizer(
-            batch["text"],
-            truncation=True,
-            padding="max_length",
-            max_length=max_seq_length,
-        )
-        encoded["labels"] = [ids[:] for ids in encoded["input_ids"]]
-        return encoded
-
-    if on_status:
-        on_status("Tokenizing training dataset", 42)
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in model.parameters())
     if on_log:
-        on_log("Tokenizing prompts and completions for supervised fine-tuning")
-    tokenized_dataset = dataset.map(tokenize, batched=True, remove_columns=["text"])
+        on_log(f"Trainable: {trainable_params:,} / {total_params:,} ({100*trainable_params/total_params:.2f}%)")
 
     metrics_log: list[dict[str, Any]] = []
     last_progress = 45
@@ -204,26 +292,34 @@ def run_local_training(
         on_status("Training locally", 45)
     if on_log:
         on_log(
-            f"Trainer configured with epochs={epochs}, batch_size={batch_size}, gradient_accumulation={grad_accum}, learning_rate={lr}"
+            f"SFTTrainer: epochs={epochs}, batch={batch_size}, grad_accum={grad_accum}, "
+            f"lr={lr}, optim={optim_name}, bf16={use_bf16}, fp16={use_fp16}"
         )
 
-    trainer = Trainer(
+    trainer = SFTTrainer(
         model=model,
-        args=TrainingArguments(
+        processing_class=tokenizer,
+        train_dataset=dataset,
+        peft_config=None,  # already applied via get_peft_model
+        args=SFTConfig(
+            dataset_text_field="text",
+            max_length=max_seq_length,
+            packing=False,
             output_dir=str(out_dir / "checkpoints"),
             num_train_epochs=epochs,
             per_device_train_batch_size=batch_size,
             gradient_accumulation_steps=grad_accum,
             learning_rate=lr,
+            optim=optim_name,
+            warmup_steps=5,
             logging_steps=1,
             save_strategy="no",
             report_to="none",
-            fp16=device == "cuda",
-            bf16=False,
+            fp16=use_fp16,
+            bf16=use_bf16,
+            gradient_checkpointing=use_grad_ckpt,
             remove_unused_columns=False,
         ),
-        train_dataset=tokenized_dataset,
-        data_collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False),
         callbacks=[MetricsCallback()],
     )
     trainer.train()
@@ -248,10 +344,3 @@ def run_local_training(
         "artifact_dir": str(adapter_dir),
         "deploy_base_model": deploy_base_model,
     }
-
-
-def _infer_target_modules(base_model: str) -> list[str]:
-    model_name = base_model.lower()
-    if "phi" in model_name:
-        return ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
-    return ["q_proj", "k_proj", "v_proj", "o_proj"]

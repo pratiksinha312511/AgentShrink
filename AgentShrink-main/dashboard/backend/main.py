@@ -779,6 +779,7 @@ def _run_finetune_job(job_id: str, backend: str, config: dict, training_rows: li
     from agentshrink.finetune.hf_trainer import run_hf_training
     from agentshrink.finetune.local_trainer import run_local_training
     from agentshrink.finetune.modal_trainer import run_modal_training
+    from agentshrink.finetune.runtime import choose_default_model, lookup_backend_model
 
     stop_event = finetune_stop_events[job_id]
 
@@ -793,6 +794,20 @@ def _run_finetune_job(job_id: str, backend: str, config: dict, training_rows: li
         job_store.append_metric(job_id, metric)
 
     try:
+        # --- Pre-flight: auto-fallback gated models without HF token ---
+        token = (hf_token or config.get("hf_token") or os.environ.get("HF_TOKEN") or "").strip() or None
+        model_info = lookup_backend_model(backend, config.get("base_model", ""))
+        if model_info and model_info.get("gated") and not token:
+            default = choose_default_model(backend)
+            job_store.append_log(
+                job_id,
+                f"Model '{config['base_model']}' is gated and no HF token provided. "
+                f"Auto-switching to '{default['id']}' ({default['label']})."
+            )
+            config = dict(config)
+            config["base_model"] = default["id"]
+            config["deploy_base_model"] = default["deploy_base_model"]
+
         job = job_store.update_job(
             job_id,
             status="running",
@@ -940,12 +955,16 @@ def _run_deploy_job(job_id: str):
         )
 
         update_deploy("Running post-train accuracy check", 72)
-        accuracy = evaluate_deployed_model(
-            deploy_result["ollama_name"],
-            _prepare_finetune_payload(int(job["cluster_id"]))["training_rows"],
-            sample_size=2,
-            on_log=lambda message: job_store.append_log(job_id, message),
-        )
+        try:
+            accuracy = evaluate_deployed_model(
+                deploy_result["ollama_name"],
+                _prepare_finetune_payload(int(job["cluster_id"]))["training_rows"],
+                sample_size=2,
+                on_log=lambda message: job_store.append_log(job_id, message),
+            )
+        except Exception as eval_exc:
+            job_store.append_log(job_id, f"Post-train accuracy check failed (non-fatal): {eval_exc}", level="warning")
+            accuracy = 0.0
 
         from agentshrink.finetuner import FineTuner
 
@@ -2077,10 +2096,10 @@ async def finetune_start(req: StartFineTuneRequest):
         "base_model": selected_model["id"],
         "deploy_base_model": req.config.get("deploy_base_model") or selected_model["deploy_base_model"],
         "epochs": int(req.config.get("epochs", 2)),
-        "batch_size": int(req.config.get("batch_size", 2 if req.backend == "modal" else 1)),
+        "batch_size": int(req.config.get("batch_size", 2)),
         "learning_rate": float(req.config.get("learning_rate", 2e-4)),
         "lora_r": int(req.config.get("lora_r", 16)),
-        "gradient_accumulation_steps": int(req.config.get("gradient_accumulation_steps", 8)),
+        "gradient_accumulation_steps": int(req.config.get("gradient_accumulation_steps", 4)),
         "max_seq_length": int(req.config.get("max_seq_length", 512)),
         "hf_token": req.hf_token or os.getenv("HF_TOKEN"),
     }

@@ -133,6 +133,13 @@ BACKEND_MODELS = {
             "requires_hf_token": False,
         },
         {
+            "id": "microsoft/Phi-3.5-mini-instruct",
+            "label": "Phi 3.5 Mini",
+            "deploy_base_model": "phi3.5:3.8b",
+            "gated": False,
+            "requires_hf_token": False,
+        },
+        {
             "id": "meta-llama/Llama-3.2-3B-Instruct",
             "label": "Llama 3.2 3B (HF gated access)",
             "deploy_base_model": "llama3.2:3b",
@@ -165,7 +172,7 @@ def backend_statuses() -> list[dict[str, Any]]:
     return result
 
 
-def _local_backend_ready() -> bool:
+def _local_backend_ready() -> tuple[bool, str]:
     check_code = (
         "import torch\n"
         "from datasets import Dataset\n"
@@ -240,6 +247,10 @@ def write_training_artifacts(result: dict[str, Any], artifact_dir: pathlib.Path)
         if not source.exists():
             raise FileNotFoundError(f"Expected artifact directory not found: {source}")
         target = artifact_dir / "adapter"
+        # If source and target are the same path (local trainer saves directly
+        # into artifact_dir/adapter), skip the copy — artifacts are already in place.
+        if source.resolve() == target.resolve():
+            return {"artifact_kind": artifact_kind, "artifact_dir": str(target)}
         if target.exists():
             shutil.rmtree(target)
         shutil.copytree(source, target)
@@ -289,7 +300,10 @@ def deploy_to_ollama(
             )
         modelfile = deploy_dir / "Modelfile"
         modelfile.write_text(
-            "FROM ./merged_model\n",
+            "FROM ./merged_model\n"
+            "PARAMETER temperature 0.7\n"
+            "PARAMETER top_p 0.9\n"
+            "PARAMETER num_ctx 2048\n",
             encoding="utf-8",
         )
     else:
@@ -374,15 +388,21 @@ def evaluate_deployed_model(
     for index, row in enumerate(rows, start=1):
         if on_log:
             on_log(f"Evaluating deployed model sample {index}/{len(rows)}")
-        response = ollama.generate(
-            model=model_name,
-            prompt=row["prompt"],
-            options={
-                "temperature": 0,
-                "num_predict": 96,
-            },
-            keep_alive="10m",
-        )
+        try:
+            response = ollama.generate(
+                model=model_name,
+                prompt=row["prompt"],
+                options={
+                    "temperature": 0,
+                    "num_predict": 96,
+                    "num_ctx": 512,
+                },
+                keep_alive="5m",
+            )
+        except Exception as eval_exc:
+            if on_log:
+                on_log(f"Ollama inference failed for sample {index}: {eval_exc}")
+            continue
         text = ""
         if isinstance(response, dict):
             text = response.get("response", "")
@@ -391,7 +411,7 @@ def evaluate_deployed_model(
         scores.append(SequenceMatcher(None, text.strip(), row["completion"].strip()).ratio())
     if on_log:
         on_log("Post-train accuracy check complete")
-    return round(mean(scores) * 100, 1)
+    return round(mean(scores) * 100, 1) if scores else 0.0
 
 
 def load_training_rows_from_dataset(dataset_path: pathlib.Path) -> list[dict[str, str]]:
@@ -438,6 +458,8 @@ def _merge_adapter_with_base_model(
     env["HF_HUB_DISABLE_XET"] = "1"
     env["HF_HUB_ETAG_TIMEOUT"] = os.getenv("HF_HUB_ETAG_TIMEOUT", "60")
     env["HF_HUB_DOWNLOAD_TIMEOUT"] = os.getenv("HF_HUB_DOWNLOAD_TIMEOUT", "1800")
+    # Propagate SSL bypass for corporate proxies
+    env.setdefault("HF_HUB_DISABLE_SSL_VERIFY", os.getenv("HF_HUB_DISABLE_SSL_VERIFY", "0"))
     cmd = [
         sys.executable,
         "-m",
